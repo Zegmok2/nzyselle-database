@@ -1,0 +1,230 @@
+/*
+  Nzyselle design tokens.
+
+  Original interface, not a copy of any third-party product's layout,
+  iconography, or trade dress — this file defines only abstract color/
+  spacing/motion primitives, which is the right place to enforce "one
+  original identity, applied consistently" rather than baking colors into
+  every component.
+
+  Restrained dark technical-dashboard palette: near-black surfaces, thin
+  low-contrast borders, a single blue accent used sparingly, muted status
+  colors. No gradients, no glow, no oversized typography.
+*/
+:root {
+  /* Surfaces */
+  --bg: #0a0a0c;
+  --panel-strong: #131316;
+  --panel-soft: #0e0e11;
+  --panel-hover: #1a1a1f;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --text-primary: #f5f5f7;
+  --text-secondary: #96969e;
+  --text-tertiary: #6a6a73;
+
+  /* Accent -- one blue, used sparingly for links and primary actions.
+     --accent-gradient is kept as an alias (not an actual gradient) so
+     older call sites that still reference it render correctly without
+     needing to be touched individually. */
+  --accent: #3b82f6;
+  --accent-hover: #549bff;
+  --accent-contrast: #ffffff;
+  --accent-gradient: var(--accent);
+
+  /* Status -- muted, used only where they communicate meaning */
+  --success: #3ecf8e;
+  --error: #f16565;
+  --warning: #e2a640;
+  --info: var(--accent);
+
+  /* Elevation -- minimal shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  /* Radius -- consistent, restrained */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Layout */
+  --nav-height: 52px;
+  --toolbar-height: 56px;
+  --content-max-width: 1280px;
+
+  /* Motion */
+  --motion-fast: 140ms;
+  --motion-normal: 200ms;
+  --motion-slow: 260ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-normal: 0ms;
+    --motion-slow: 0ms;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family:
+    "Inter",
+    "Segoe UI Variable",
+    "Segoe UI",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+kbd,
+pre,
+.nz-mono {
+  font-family:
+    "Cascadia Code",
+    "Consolas",
+    "SFMono-Regular",
+    ui-monospace,
+    monospace;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------------
+   Shared interactive utility classes -- applied alongside components'
+   existing inline styles (which carry color/layout) so hover/press states
+   don't have to be reimplemented per page. Inline style props never
+   collide with these since these only touch transition/hover/active.
+   --------------------------------------------------------------------- */
+.nz-btn-primary {
+  transition:
+    filter var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+}
+.nz-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.nz-btn-primary:active:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.nz-btn-secondary {
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.nz-btn-secondary:hover:not(:disabled) {
+  background: var(--panel-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.nz-card {
+  transition:
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+}
+.nz-card:hover {
+  border-color: var(--border-strong);
+}
+
+/* Selectable/clickable data rows (library items, destination rows, etc). */
+.nz-row {
+  transition: background var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease);
+}
+.nz-row:hover {
+  background: var(--panel-hover);
+}
+
+.nz-nav-item {
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.nz-nav-item:hover {
+  background: var(--panel-soft);
+  color: var(--text-primary);
+}
+
+/* Top nav tab -- underline-style active state, muted inactive text. */
+.nz-tab {
+  position: relative;
+  transition: color var(--motion-fast) var(--motion-ease);
+}
+.nz-tab:hover {
+  color: var(--text-primary) !important;
+}
+.nz-tab[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -13px;
+  height: 2px;
+  background: var(--text-primary);
+  border-radius: 999px;
+}
+
+.nz-input {
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+.nz-input:hover {
+  border-color: var(--border-strong);
+}
+.nz-input:focus {
+  border-color: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+::selection {
+  background: var(--accent);
+  color: #ffffff;
+}

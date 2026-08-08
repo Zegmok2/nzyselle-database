@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+db/*.sqlite
+.DS_Store
+*.tsbuildinfo
+
+# Updater signing key -- NEVER commit this. Losing it just means you can't
+# sign new updates; leaking it means anyone can sign a malicious update that
+# every installed copy of the app will trust and auto-install. Keep
+# nzyselle-updater.key and .keypassword.txt in a password manager instead.
+updater-keys/

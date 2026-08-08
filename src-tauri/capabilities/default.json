@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities needed by the main window: default core APIs, opening the system browser for real-platform OAuth (src-tauri/src/commands.rs::begin_connect_platform), and the auto-updater (check/download/install + relaunch).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:allow-open-url",
+    "dialog:allow-open",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

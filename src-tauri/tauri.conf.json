@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nzyselle Database",
+  "version": "0.3.0",
+  "identifier": "com.nzyselle.database",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Nzyselle Database",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "dragDropEnabled": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "publisher": "Nzyselle",
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "icon": ["icons/icon.ico"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["nzyselledatabase"]
+      }
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Zegmok2/nzyselle-database/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDRjc4ODJCM0E2QjZENjMKUldSamJXczZLNGozYkR0ME0xQ1V2REVLRHkrb0JsWE5tUlYwVmpZSThDRzZGeE5BQkxpeGhtNloK"
+    }
+  }
+}

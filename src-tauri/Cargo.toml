@@ -1,0 +1,33 @@
+[package]
+name = "nzyselle-database"
+version = "0.3.0"
+edition = "2021"
+description = "Nzyselle Database desktop shell"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nzyselle-core = { path = "../core" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+base64 = "0.22"
+
+# Windows Credential Manager, real (non-mock) build of nzyselle-core's
+# credential store on this platform.
+[target.'cfg(windows)'.dependencies]
+keyring = "2"
+
+[features]
+# Never enabled in a release build. Swaps the sandbox adapter into the
+# platform picker the UI can select from, clearly labeled, so QA and
+# development never require live provider credentials.
+dev-sandbox = []
