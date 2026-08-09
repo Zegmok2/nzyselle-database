@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { DiagnosticEvent } from "../lib/types";
 import { useBackend } from "../lib/backendContext";
-import { EmptyState } from "./dashboard/Toolbar";
+import { Badge, EmptyState, PageToolbar, Skeleton, type BadgeTone } from "./dashboard/Toolbar";
+import { ShieldCheck } from "lucide-react";
 
-const severityColor: Record<string, string> = {
-  info: "var(--info)",
-  warning: "var(--warning)",
-  error: "var(--error)",
+const SEVERITY_TONE: Record<DiagnosticEvent["severity"], BadgeTone> = {
+  info: "info",
+  warning: "warning",
+  error: "error",
 };
 
 export function DiagnosticsPage({ workspaceId }: { workspaceId: string }) {
@@ -29,43 +30,52 @@ export function DiagnosticsPage({ workspaceId }: { workspaceId: string }) {
   }, [backend, workspaceId]);
 
   if (loading) {
-    return <div style={{ padding: 32, color: "var(--text-secondary)" }}>Loading…</div>;
+    return (
+      <div style={{ padding: 32, maxWidth: "var(--content-max-width)", margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+        <Skeleton height={32} width={160} />
+        <Skeleton height={60} />
+        <Skeleton height={60} />
+      </div>
+    );
   }
 
   const filtered = filter === "all" ? events : events.filter((e) => e.severity === filter);
 
   return (
     <div style={{ padding: 32, maxWidth: "var(--content-max-width)", margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Diagnostics</h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 4 }}>
-          Every adapter error the queue and analytics sync hit, in plain language. Never includes tokens
-          or credentials.
-        </p>
-      </div>
+      <PageToolbar title="Diagnostics" description="Every adapter error the queue and analytics sync hit, in plain language. Never includes tokens or credentials." />
 
       <div style={{ display: "flex", gap: 8 }}>
-        {(["all", "info", "warning", "error"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilter(s)}
-            style={{
-              padding: "5px 12px",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border-subtle)",
-              background: filter === s ? "var(--panel-soft)" : "transparent",
-              color: "var(--text-primary)",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            {s}
-          </button>
-        ))}
+        {(["all", "info", "warning", "error"] as const).map((s) => {
+          const count = s === "all" ? events.length : events.filter((e) => e.severity === s).length;
+          return (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              aria-pressed={filter === s}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 12px",
+                borderRadius: "var(--radius-sm)",
+                border: filter === s ? "1px solid var(--accent)" : "1px solid var(--border-subtle)",
+                background: filter === s ? "var(--panel-hover)" : "transparent",
+                color: filter === s ? "var(--text-primary)" : "var(--text-secondary)",
+                fontSize: "var(--text-sm)",
+                cursor: "pointer",
+                textTransform: "capitalize",
+              }}
+            >
+              {s}
+              <span style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>{count}</span>
+            </button>
+          );
+        })}
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState message="No diagnostic events." />
+        <EmptyState icon={<ShieldCheck size={24} />} message="No diagnostic events." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {filtered.map((e) => (
@@ -76,17 +86,15 @@ export function DiagnosticsPage({ workspaceId }: { workspaceId: string }) {
                 borderRadius: "var(--radius-sm)",
                 background: "var(--panel-strong)",
                 border: "1px solid var(--border-subtle)",
-                fontSize: 12,
+                fontSize: "var(--text-sm)",
               }}
             >
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ color: severityColor[e.severity], fontWeight: 700, textTransform: "uppercase", fontSize: 10 }}>
-                  {e.severity}
-                </span>
+                <Badge tone={SEVERITY_TONE[e.severity]}>{e.severity}</Badge>
                 <span style={{ color: "var(--text-tertiary)" }}>{new Date(e.occurredAt).toLocaleString()}</span>
                 {e.platformId && <span style={{ color: "var(--text-tertiary)" }}>· {e.platformId}</span>}
               </div>
-              <div style={{ marginTop: 4 }}>{e.plainMessage}</div>
+              <div style={{ marginTop: 6 }}>{e.plainMessage}</div>
             </div>
           ))}
         </div>

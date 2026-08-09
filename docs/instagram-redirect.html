@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Redirecting to Nzyselle Database…</title>
+</head>
+<body>
+<!--
+  Instagram's "Business Login for Instagram" OAuth flow requires a real
+  HTTPS-reachable redirect_uri -- it has no loopback/localhost exception
+  the way TikTok, YouTube, and even Instagram's own older Facebook-Login
+  flow do. This page exists purely to satisfy that requirement: Instagram
+  redirects the browser HERE (a real public HTTPS page) with the OAuth
+  code/state/error in the query string, and this page's only job is to
+  immediately hand that same query string off to Nzyselle Database's real
+  local OAuth callback listener (127.0.0.1, a fixed port for Instagram --
+  see core/src/oauth_callback.rs and docs/LIMITATIONS.md). Nothing here
+  reads, stores, or transmits the code/state anywhere else -- it's a pure
+  same-machine handoff, the browser is simply told to load one more local
+  URL.
+-->
+<p>Redirecting back to Nzyselle Database…</p>
+<script>
+  window.location.replace("http://localhost:47984/callback" + window.location.search);
+</script>
+</body>
+</html>

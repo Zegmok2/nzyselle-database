@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { VideoAsset } from "../lib/types";
 import { useBackend } from "../lib/backendContext";
-import { PageToolbar, PrimaryButton, SecondaryButton, EmptyState } from "./dashboard/Toolbar";
+import { Badge, ConfirmDialog, EmptyState, PageToolbar, PrimaryButton, SecondaryButton, Skeleton } from "./dashboard/Toolbar";
+import { Video as VideoIcon } from "lucide-react";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -51,6 +52,7 @@ export function LibraryPage({ workspaceId }: { workspaceId: string }) {
   const [query, setQuery] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<VideoAsset | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +93,14 @@ export function LibraryPage({ workspaceId }: { workspaceId: string }) {
   );
 
   if (loading) {
-    return <div style={{ padding: 32, color: "var(--text-secondary)" }}>Loading library…</div>;
+    return (
+      <div style={{ padding: 32, maxWidth: "var(--content-max-width)", margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <Skeleton height={32} width={160} />
+        <Skeleton height={78} />
+        <Skeleton height={78} />
+        <Skeleton height={78} />
+      </div>
+    );
   }
 
   return (
@@ -106,10 +115,10 @@ export function LibraryPage({ workspaceId }: { workspaceId: string }) {
           </PrimaryButton>
         }
       />
-      {addError && <div style={{ color: "var(--error)", fontSize: 13 }}>{addError}</div>}
+      {addError && <div style={{ color: "var(--error)", fontSize: "var(--text-base)" }}>{addError}</div>}
 
       {filtered.length === 0 ? (
-        <EmptyState message={videos.length === 0 ? "No videos yet." : "No videos match your search."} />
+        <EmptyState icon={<VideoIcon size={28} />} message={videos.length === 0 ? "No videos yet." : "No videos match your search."} />
       ) : (
         <div
           style={{
@@ -133,20 +142,35 @@ export function LibraryPage({ workspaceId }: { workspaceId: string }) {
             >
               <Thumbnail video={v} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>{v.originalFilename}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                <div style={{ fontWeight: 500, fontSize: "var(--text-md)" }}>{v.originalFilename}</div>
+                <div style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", marginTop: 2 }}>
                   {formatDuration(v.durationSeconds)} · {v.width}×{v.height}
                   {v.isVertical ? " (vertical)" : ""} · {formatSize(v.fileSizeBytes)} · {v.codec}
                 </div>
                 {v.hasBeenPosted && (
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>Already posted</div>
+                  <div style={{ marginTop: 6 }}>
+                    <Badge tone="info">Already posted</Badge>
+                  </div>
                 )}
               </div>
-              <SecondaryButton onClick={() => handleRemove(v.id)}>Remove</SecondaryButton>
+              <SecondaryButton onClick={() => setPendingRemove(v)}>Remove</SecondaryButton>
             </div>
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove this video?"
+        message={pendingRemove ? `"${pendingRemove.originalFilename}" will be removed from the Library. This doesn't delete the file from disk, and doesn't affect posts already made from it.` : ""}
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => {
+          if (pendingRemove) handleRemove(pendingRemove.id);
+          setPendingRemove(null);
+        }}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   );
 }

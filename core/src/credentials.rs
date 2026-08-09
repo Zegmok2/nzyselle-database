@@ -8,11 +8,11 @@
 //!
 //! The real implementation (`WindowsCredentialStore`, gated behind
 //! `target_os = "windows"`) wraps the `keyring` crate, which talks to
-//! Credential Manager's DPAPI-backed vault. It cannot be exercised in this
-//! Linux build environment, so it's written but unverified until it runs
-//! on actual Windows — that limitation is intentional to call out rather
-//! than paper over with a same-looking Linux implementation pretending to
-//! be equivalent security.
+//! Credential Manager's DPAPI-backed vault. Confirmed working against a
+//! real Windows Credential Manager in an actual user session (2026-08-08):
+//! a developer-app Client ID/Secret and a real OAuth access/refresh token
+//! pair were both saved and read back successfully during a live YouTube
+//! connection.
 //!
 //! `InMemoryCredentialStore` is the test double every other layer's tests
 //! run against, so the *contract* (store/retrieve/delete, never logged,

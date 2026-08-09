@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "nzyselle-core"
-version = "0.3.0"
+version = "0.4.8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2617,7 +2617,7 @@ dependencies = [
 
 [[package]]
 name = "nzyselle-database"
-version = "0.3.0"
+version = "0.4.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",

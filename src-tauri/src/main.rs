@@ -90,6 +90,7 @@ fn main() {
             commands::cancel_scheduled_post,
             commands::retry_destination_post,
             commands::sync_analytics,
+            commands::get_posting_options,
             commands::list_metrics,
             commands::list_available_metrics,
             commands::get_analytics_overview,

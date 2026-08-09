@@ -282,6 +282,15 @@ fn fixed_oauth_port_for(platform_id: &str) -> u16 {
     }
 }
 
+/// A tiny public static page (docs/instagram-redirect.html) whose only job
+/// is forwarding the browser to the local listener above -- required
+/// because Instagram's Business Login flow demands a real HTTPS
+/// redirect_uri with no loopback exception (see the comment in
+/// `begin_connect_platform` and docs/LIMITATIONS.md for the full story).
+/// Must exactly match what's registered as this app's Instagram OAuth
+/// redirect URI in the Meta App Dashboard.
+const INSTAGRAM_REDIRECT_BRIDGE_URL: &str = "https://zegmok2.github.io/nzyselle-database/instagram-redirect.html";
+
 /// Opens the platform's real OAuth authorize page in the system browser and
 /// waits for the loopback callback -- the same pattern `begin_connect_sandbox`
 /// uses, but generic over any adapter in the registry instead of hardcoding
@@ -298,21 +307,40 @@ pub async fn begin_connect_platform(app: tauri::AppHandle, state: State<'_, AppS
     // port every time. TikTok and Meta/Instagram require the redirect URI
     // to exactly match what's registered in their developer console --
     // a random port would never match, so those use a fixed port that
-    // must be registered as http://127.0.0.1:<port>/callback in each
-    // platform's developer app settings (see docs/LIMITATIONS.md).
+    // must be registered in each platform's developer app settings (see
+    // docs/LIMITATIONS.md).
     let fixed_port = fixed_oauth_port_for(&platform_id);
     let (listener, port) = nzyselle_core::oauth_callback::CallbackServer::bind_on(fixed_port).await.map_err(|e| e.to_string())?;
-    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+    // Instagram's "Business Login for Instagram" flow goes one step further
+    // than a hostname quirk -- confirmed live, its redirect_uri must be a
+    // real HTTPS-reachable URL with no loopback/localhost exception at all
+    // (unlike TikTok, Google, and even Instagram's own older Facebook-Login
+    // flow, which all accept a plain http://127.0.0.1 redirect). A purely
+    // local desktop app has no such URL by default, so for Instagram this
+    // uses a tiny static public redirect-bridge page instead
+    // (docs/instagram-redirect.html, hosted on GitHub Pages) whose only
+    // job is to immediately forward the browser to this same local
+    // listener with the same query string -- the listener itself is still
+    // bound locally exactly as for every other platform, it just isn't
+    // the URL Instagram redirects to directly.
+    let redirect_uri = if platform_id == "instagram" {
+        INSTAGRAM_REDIRECT_BRIDGE_URL.to_string()
+    } else {
+        format!("http://127.0.0.1:{port}/callback")
+    };
 
     let begin = adapter.begin_authorization(&["publish".into(), "analytics".into()], &redirect_uri).await.map_err(|e| e.to_string())?;
-    let server = nzyselle_core::oauth_callback::CallbackServer::listen(listener, port, begin.state.clone());
+    // This timeout lives inside the spawned listener task itself (see
+    // oauth_callback.rs), so an abandoned/timed-out attempt actually
+    // releases the port instead of leaking it -- required for fixed-port
+    // platforms (TikTok/Instagram), where a leaked listener would
+    // permanently block every later connect attempt with an OS "address
+    // already in use" error.
+    let server = nzyselle_core::oauth_callback::CallbackServer::listen(listener, port, begin.state.clone(), std::time::Duration::from_secs(300));
 
     app.opener().open_url(&begin.authorization_url, None::<String>).map_err(|e| format!("Couldn't open the system browser: {e}"))?;
 
-    let callback = server
-        .wait_for_callback(std::time::Duration::from_secs(300))
-        .await
-        .map_err(|e| format!("Authorization didn't complete: {e}"))?;
+    let callback = server.wait_for_callback().await.map_err(|e| format!("Authorization didn't complete: {e}"))?;
 
     let identity = adapter
         .complete_authorization(&callback.code, &callback.state, &begin.pkce_verifier, &redirect_uri)
@@ -646,6 +674,7 @@ pub struct CampaignDto {
     pub video_asset_id: String,
     pub internal_name: Option<String>,
     pub shared_caption: Option<String>,
+    pub shared_hashtags: Vec<String>,
     pub status: String,
     pub scheduled_for: Option<String>,
     pub created_at: String,
@@ -659,6 +688,8 @@ pub struct SubmitCampaignInput {
     pub video_asset_id: String,
     pub internal_name: Option<String>,
     pub shared_caption: Option<String>,
+    #[serde(default)]
+    pub shared_hashtags: Vec<String>,
     pub connection_ids: Vec<String>,
     #[serde(default)]
     pub caption_overrides: HashMap<String, String>,
@@ -667,13 +698,16 @@ pub struct SubmitCampaignInput {
     pub timezone: Option<String>,
 }
 
+type CampaignRow = (String, String, Option<String>, Option<String>, String, String, Option<String>, String);
+
 fn load_campaign(conn: &rusqlite::Connection, campaign_id: &str) -> rusqlite::Result<CampaignDto> {
-    let (workspace_id, video_asset_id, internal_name, shared_caption, status, scheduled_for, created_at) = conn.query_row(
-        "SELECT workspace_id, video_asset_id, internal_name, shared_caption, status, scheduled_for, created_at
+    let (workspace_id, video_asset_id, internal_name, shared_caption, shared_hashtags_json, status, scheduled_for, created_at): CampaignRow = conn.query_row(
+        "SELECT workspace_id, video_asset_id, internal_name, shared_caption, shared_hashtags, status, scheduled_for, created_at
          FROM publishing_campaign WHERE id = ?1",
         [campaign_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
     )?;
+    let shared_hashtags: Vec<String> = serde_json::from_str(&shared_hashtags_json).unwrap_or_default();
 
     let mut stmt = conn.prepare(
         "SELECT dp.id, dp.campaign_id, dp.connection_id, sc.platform_id, dp.status,
@@ -704,6 +738,7 @@ fn load_campaign(conn: &rusqlite::Connection, campaign_id: &str) -> rusqlite::Re
         video_asset_id,
         internal_name,
         shared_caption,
+        shared_hashtags,
         status,
         scheduled_for,
         created_at,
@@ -722,10 +757,12 @@ pub fn submit_campaign(state: State<AppState>, input: SubmitCampaignInput) -> Re
     let approved_config_json = serde_json::to_string(&serde_json::json!({
         "connectionIds": input.connection_ids,
         "captionOverrides": input.caption_overrides,
+        "sharedHashtags": input.shared_hashtags,
         "scheduledFor": scheduled_for,
         "timezone": input.timezone,
     }))
     .map_err(|e| e.to_string())?;
+    let shared_hashtags_json = serde_json::to_string(&input.shared_hashtags).map_err(|e| e.to_string())?;
 
     state
         .db
@@ -734,10 +771,10 @@ pub fn submit_campaign(state: State<AppState>, input: SubmitCampaignInput) -> Re
                 "INSERT INTO publishing_campaign
                  (id, workspace_id, video_asset_id, internal_name, shared_caption, shared_hashtags,
                   approved_config_json, status, scheduled_for, timezone, confirmed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, '[]', ?6, 'scheduled', ?7, ?8, datetime('now'))",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, datetime('now'))",
                 rusqlite::params![
                     campaign_id, input.workspace_id, input.video_asset_id, input.internal_name,
-                    input.shared_caption, approved_config_json, scheduled_for, input.timezone
+                    input.shared_caption, shared_hashtags_json, approved_config_json, scheduled_for, input.timezone
                 ],
             )?;
 
@@ -945,6 +982,50 @@ pub async fn sync_analytics(state: State<'_, AppState>, connection_id: String) -
             Err(translated.plain_message)
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatorPostingOptionsDto {
+    pub available_privacy_levels: Vec<String>,
+    pub can_disable_comments: bool,
+    pub can_disable_duet: bool,
+    pub can_disable_stitch: bool,
+    pub max_duration_seconds: Option<f64>,
+    pub max_caption_length: Option<u32>,
+    pub posting_cap_remaining: Option<u32>,
+}
+
+/// Real per-platform posting limits (caption length, duration, privacy
+/// levels) straight from the adapter's already-implemented
+/// `get_creator_posting_options()` -- thin plumbing, no new business logic.
+/// Used by the Publish composer for real validation instead of hardcoding
+/// duplicate limit numbers in the frontend.
+#[tauri::command]
+pub async fn get_posting_options(state: State<'_, AppState>, connection_id: String) -> Result<CreatorPostingOptionsDto, String> {
+    let (platform_id, credential_ref): (String, String) = state
+        .db
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT platform_id, credential_ref FROM social_connection WHERE id = ?1",
+                [&connection_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+        })
+        .map_err(|e| e.to_string())?;
+
+    let adapter = state.adapters.get(&platform_id).ok_or_else(|| format!("No adapter registered for \"{platform_id}\"."))?;
+    let opts = adapter.get_creator_posting_options(&credential_ref).await.map_err(|e| adapter.translate_error(&e).plain_message)?;
+
+    Ok(CreatorPostingOptionsDto {
+        available_privacy_levels: opts.available_privacy_levels,
+        can_disable_comments: opts.can_disable_comments,
+        can_disable_duet: opts.can_disable_duet,
+        can_disable_stitch: opts.can_disable_stitch,
+        max_duration_seconds: opts.max_duration_seconds,
+        max_caption_length: opts.max_caption_length,
+        posting_cap_remaining: opts.posting_cap_remaining,
+    })
 }
 
 #[tauri::command]

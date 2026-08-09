@@ -222,6 +222,9 @@ impl ProviderAdapter for TikTokAdapter {
             can_disable_duet: true,
             can_disable_stitch: true,
             max_duration_seconds: Some(600.0),
+            // 2200 chars is TikTok Content Posting API's documented
+            // post_info.title limit: https://developers.tiktok.com/doc/content-posting-api-reference-direct-post
+            max_caption_length: Some(2200),
             posting_cap_remaining: None,
             extra: serde_json::json!({ "note": "Real posting cap not queryable via a documented endpoint." }),
         })

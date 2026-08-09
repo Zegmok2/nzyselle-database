@@ -20,6 +20,7 @@ import type {
   BackupRecord,
   Campaign,
   CaptionTemplate,
+  CreatorPostingOptions,
   DailyPoint,
   DestinationPost,
   DiagnosticEvent,
@@ -335,6 +336,7 @@ export const mockBackend = {
       videoAssetId: input.videoAssetId,
       internalName: input.internalName,
       sharedCaption: input.sharedCaption,
+      sharedHashtags: input.sharedHashtags ?? [],
       status: isDue ? "posted" : "scheduled",
       scheduledFor,
       createdAt: new Date().toISOString(),
@@ -356,6 +358,24 @@ export const mockBackend = {
   async listCampaigns(workspaceId: string): Promise<Campaign[]> {
     await delay(100);
     return campaigns.filter((c) => c.workspaceId === workspaceId);
+  },
+
+  /** Mirrors each real adapter's actual get_creator_posting_options()
+   * return values (core/src/{tiktok,instagram,youtube}_adapter.rs) so a
+   * mock-backed test exercises the same limits the real app would. */
+  async getPostingOptions(connectionId: string): Promise<CreatorPostingOptions> {
+    await delay(80);
+    const conn = connections.find((c) => c.id === connectionId);
+    switch (conn?.platformId) {
+      case "tiktok":
+        return { availablePrivacyLevels: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"], canDisableComments: true, canDisableDuet: true, canDisableStitch: true, maxDurationSeconds: 600, maxCaptionLength: 2200, postingCapRemaining: undefined };
+      case "instagram":
+        return { availablePrivacyLevels: ["PUBLIC"], canDisableComments: true, canDisableDuet: false, canDisableStitch: false, maxDurationSeconds: 900, maxCaptionLength: 2200, postingCapRemaining: 25 };
+      case "youtube":
+        return { availablePrivacyLevels: ["public", "unlisted", "private"], canDisableComments: true, canDisableDuet: false, canDisableStitch: false, maxDurationSeconds: undefined, maxCaptionLength: 100, postingCapRemaining: undefined };
+      default:
+        return { availablePrivacyLevels: ["public", "private"], canDisableComments: true, canDisableDuet: false, canDisableStitch: false, maxDurationSeconds: 180, maxCaptionLength: 500, postingCapRemaining: 50 };
+    }
   },
 
   async cancelScheduledPost(destinationPostId: string): Promise<void> {

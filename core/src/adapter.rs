@@ -83,6 +83,7 @@ pub struct CreatorPostingOptions {
     pub can_disable_duet: bool,
     pub can_disable_stitch: bool,
     pub max_duration_seconds: Option<f64>,
+    pub max_caption_length: Option<u32>,
     pub posting_cap_remaining: Option<u32>,
     /// Raw provider fields the UI may want to show verbatim, kept generic
     /// on purpose so this struct doesn't need to change per platform.

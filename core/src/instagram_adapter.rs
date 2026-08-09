@@ -1,21 +1,29 @@
-//! Real Instagram adapter -- via the Meta/Facebook Graph API (Instagram
-//! Graph API for professional accounts linked to a Facebook Page).
+//! Real Instagram adapter -- via "Instagram API with Instagram Login" /
+//! Business Login for Instagram (developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login).
 //!
-//! **UNVERIFIED.** Written against https://developers.facebook.com/docs/instagram-platform/,
-//! never run against a live Meta developer app -- same caveat as
-//! `tiktok_adapter.rs`.
+//! This adapter was originally written against the OLDER "Instagram Graph
+//! API via Facebook Login for Business" flow (a linked Facebook Page,
+//! `graph.facebook.com`, scopes like `instagram_basic`). That flow turned
+//! out not to match reality: a real Meta app created for Instagram posting
+//! defaults to the newer **Instagram Login** flow, confirmed live via a
+//! real "Invalid Scopes" rejection followed by checking the actual App
+//! Dashboard configuration. Rewritten 2026-08-08 against Meta's current
+//! docs for that flow -- endpoints, scope names (`instagram_business_*`,
+//! not the old `instagram_basic`/`instagram_content_publish`), and the
+//! short-lived -> long-lived token exchange are all different from the
+//! Facebook Login flow and from every other adapter in this codebase.
 //!
 //! **A real, load-bearing limitation, not a shortcut taken here:**
-//! Instagram's public Graph API only accepts a *publicly reachable URL* for
-//! the video when creating a media container -- it does not accept direct
-//! byte upload of a local file the way TikTok/YouTube do. A fully local
-//! desktop app has no such URL to offer by default. Rather than silently
-//! failing or pretending to upload, `initialize_upload`/`upload_media`
-//! return `AdapterError::NotSupported` with that explanation unless the
-//! caller supplies an already-hosted URL via
-//! `PublishRequest.platform_specific.mediaUrl` (for users who host their
-//! own videos elsewhere) -- in which case `publish()` drives the real
-//! container-creation + publish flow against that URL.
+//! Instagram's public API only accepts a *publicly reachable URL* for the
+//! video when creating a media container -- it does not accept direct byte
+//! upload of a local file the way TikTok/YouTube do. A fully local desktop
+//! app has no such URL to offer by default. Rather than silently failing
+//! or pretending to upload, `initialize_upload`/`upload_media` return
+//! `AdapterError::NotSupported` with that explanation unless the caller
+//! supplies an already-hosted URL via `PublishRequest.platform_specific.mediaUrl`
+//! (for users who host their own videos elsewhere) -- in which case
+//! `publish()` drives the real container-creation + publish flow against
+//! that URL. This limitation is unchanged by the OAuth-flow rewrite above.
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -26,14 +34,29 @@ use crate::adapter::*;
 use crate::capability::{Capability, PlatformCapabilities};
 use crate::credentials::CredentialStore;
 use crate::ids::generate_id;
-use crate::oauth_http::{generate_pkce, load_client_config, load_tokens, map_http_status, map_transport_error, save_tokens, StoredTokens};
+use crate::oauth_http::{load_client_config, load_tokens, map_http_status, map_transport_error, save_tokens, StoredTokens};
 
-const GRAPH_VERSION: &str = "v19.0";
-const AUTH_URL: &str = "https://www.facebook.com/v19.0/dialog/oauth";
-const TOKEN_URL: &str = "https://graph.facebook.com/v19.0/oauth/access_token";
+const GRAPH_VERSION: &str = "v26.0";
+const AUTH_URL: &str = "https://www.instagram.com/oauth/authorize";
+const SHORT_LIVED_TOKEN_URL: &str = "https://api.instagram.com/oauth/access_token";
+const LONG_LIVED_TOKEN_URL: &str = "https://graph.instagram.com/access_token";
+const REFRESH_TOKEN_URL: &str = "https://graph.instagram.com/refresh_access_token";
+// Confirmed live against Meta's current Business Login for Instagram docs
+// (developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login)
+// after a real "Invalid Scopes" rejection using the old instagram_basic/
+// instagram_content_publish names -- those are deprecated in favor of
+// these instagram_business_* names for this specific login flow.
+const SCOPES: &str = "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_messages";
 
 fn graph_url(path: &str) -> String {
-    format!("https://graph.facebook.com/{GRAPH_VERSION}/{path}")
+    format!("https://graph.instagram.com/{GRAPH_VERSION}/{path}")
+}
+
+#[derive(serde::Deserialize)]
+struct MeProfile {
+    user_id: String,
+    username: Option<String>,
+    profile_picture_url: Option<String>,
 }
 
 pub struct InstagramAdapter {
@@ -53,9 +76,9 @@ impl InstagramAdapter {
             (
                 "direct_publish",
                 true,
-                Some("Requires a professional account linked to a Facebook Page, AND a publicly-hosted video URL -- see module docs."),
+                Some("Requires a professional (Business/Creator) Instagram account, AND a publicly-hosted video URL -- see module docs."),
             ),
-            ("native_music_selection", false, Some("Not exposed via the Graph API.")),
+            ("native_music_selection", false, Some("Not exposed via the API.")),
             ("reach_metric", true, None),
             ("saves_metric", true, None),
         ] {
@@ -64,45 +87,39 @@ impl InstagramAdapter {
         m
     }
 
-    async fn ig_user_id(&self, access_token: &str) -> Result<String, AdapterError> {
-        let resp = self.http.get(graph_url("me/accounts")).query(&[("access_token", access_token)]).send().await.map_err(map_transport_error)?;
+    /// The `/me` endpoint under this login flow -- unlike the old Facebook
+    /// Login flow, there's no Facebook Page indirection: the access token
+    /// is already scoped directly to the Instagram professional account.
+    /// Confirmed live against Meta's current Get Started docs
+    /// (developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/get-started),
+    /// which show the response wrapped in a "data" array -- unusual for a
+    /// singular /me resource, and possibly just a docs inconsistency, so
+    /// this tries that shape first and falls back to a flat object rather
+    /// than hard-failing on whichever guess turns out wrong.
+    async fn fetch_me(&self, access_token: &str) -> Result<MeProfile, AdapterError> {
+        let resp = self
+            .http
+            .get(graph_url("me"))
+            .query(&[("fields", "user_id,username,profile_picture_url"), ("access_token", access_token)])
+            .send()
+            .await
+            .map_err(map_transport_error)?;
         let status = resp.status();
         let text = resp.text().await.map_err(map_transport_error)?;
         if !status.is_success() {
             return Err(map_http_status(status, &text));
         }
-        #[derive(serde::Deserialize)]
-        struct Accounts {
-            data: Vec<Page>,
-        }
-        #[derive(serde::Deserialize)]
-        struct Page {
-            id: String,
-        }
-        let accounts: Accounts = serde_json::from_str(&text).map_err(|e| AdapterError::Permanent(format!("Unexpected accounts response: {e}")))?;
-        let Some(page) = accounts.data.first() else {
-            return Err(AdapterError::Permanent("No Facebook Page found on this account. Instagram publishing requires a professional account linked to a Facebook Page.".to_string()));
-        };
 
-        let resp = self.http.get(graph_url(&page.id)).query(&[("fields", "instagram_business_account"), ("access_token", access_token)]).send().await.map_err(map_transport_error)?;
-        let status = resp.status();
-        let text = resp.text().await.map_err(map_transport_error)?;
-        if !status.is_success() {
-            return Err(map_http_status(status, &text));
-        }
         #[derive(serde::Deserialize)]
-        struct PageDetail {
-            instagram_business_account: Option<IgAccount>,
+        struct Wrapped {
+            data: Vec<MeProfile>,
         }
-        #[derive(serde::Deserialize)]
-        struct IgAccount {
-            id: String,
+        if let Ok(wrapped) = serde_json::from_str::<Wrapped>(&text) {
+            if let Some(profile) = wrapped.data.into_iter().next() {
+                return Ok(profile);
+            }
         }
-        let detail: PageDetail = serde_json::from_str(&text).map_err(|e| AdapterError::Permanent(e.to_string()))?;
-        detail
-            .instagram_business_account
-            .map(|a| a.id)
-            .ok_or_else(|| AdapterError::Permanent("This Facebook Page has no linked Instagram professional account.".to_string()))
+        serde_json::from_str(&text).map_err(|e| AdapterError::Permanent(format!("Unexpected /me response: {e}")))
     }
 }
 
@@ -116,39 +133,39 @@ impl ProviderAdapter for InstagramAdapter {
         PlatformCapabilities {
             platform_id: "instagram".to_string(),
             registry_version: 1,
-            instructions_reviewed_at: "2026-08-01".to_string(),
-            docs_url: "https://developers.facebook.com/docs/instagram-platform/".to_string(),
+            instructions_reviewed_at: "2026-08-08".to_string(),
+            docs_url: "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/".to_string(),
             capabilities: Self::capabilities_map(),
         }
     }
 
     async fn begin_authorization(&self, _requested_scopes: &[String], redirect_uri: &str) -> Result<OAuthBeginResult, AdapterError> {
         let config = load_client_config(self.credentials.as_ref(), "instagram")?;
-        let pkce = generate_pkce(); // Meta's OAuth doesn't require PKCE, generated anyway for a uniform loopback-callback contract.
         let state = crate::oauth_http::generate_state();
-        // The caller (commands.rs) only passes generic intent labels like
-        // "publish"/"analytics", not real Facebook permission names -- those
-        // aren't valid Graph API scopes, so this adapter always requests its
-        // own real, documented permission set instead.
-        let scope = "instagram_basic,instagram_content_publish,pages_show_list,business_management".to_string();
+        // This flow's docs don't mention PKCE at all (client_secret-based
+        // exchange only) -- pkce_verifier is left empty rather than
+        // generated-but-unused, so nothing implies it's actually checked.
         let url = format!(
             "{AUTH_URL}?client_id={}&redirect_uri={}&state={}&scope={}&response_type=code",
             urlencoding::encode(&config.client_id),
             urlencoding::encode(redirect_uri),
             urlencoding::encode(&state),
-            urlencoding::encode(&scope),
+            urlencoding::encode(SCOPES),
         );
-        Ok(OAuthBeginResult { authorization_url: url, state, pkce_verifier: pkce.verifier, expires_at: Utc::now() + Duration::minutes(10) })
+        Ok(OAuthBeginResult { authorization_url: url, state, pkce_verifier: String::new(), expires_at: Utc::now() + Duration::minutes(10) })
     }
 
     async fn complete_authorization(&self, code: &str, _state: &str, _pkce_verifier: &str, redirect_uri: &str) -> Result<AuthorizedIdentity, AdapterError> {
         let config = load_client_config(self.credentials.as_ref(), "instagram")?;
+
+        // Step 1: exchange the code for a short-lived (1 hour) token.
         let resp = self
             .http
-            .get(TOKEN_URL)
-            .query(&[
+            .post(SHORT_LIVED_TOKEN_URL)
+            .form(&[
                 ("client_id", config.client_id.as_str()),
                 ("client_secret", config.client_secret.as_str()),
+                ("grant_type", "authorization_code"),
                 ("redirect_uri", redirect_uri),
                 ("code", code),
             ])
@@ -160,58 +177,76 @@ impl ProviderAdapter for InstagramAdapter {
         if !status.is_success() {
             return Err(map_http_status(status, &body));
         }
+        // Wrapped in a "data" array per Meta's documented response shape
+        // for this specific endpoint -- confirmed from their live docs.
         #[derive(serde::Deserialize)]
-        struct TokenResponse {
+        struct ShortLivedTokenResponse {
+            data: Vec<ShortLivedTokenItem>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ShortLivedTokenItem {
+            access_token: String,
+        }
+        let parsed: ShortLivedTokenResponse = serde_json::from_str(&body).map_err(|e| AdapterError::Permanent(format!("Unexpected token response: {e}")))?;
+        let short_lived = parsed
+            .data
+            .into_iter()
+            .next()
+            .ok_or_else(|| AdapterError::Permanent("Token exchange succeeded but returned no token.".to_string()))?
+            .access_token;
+
+        // Step 2: exchange the short-lived token for a 60-day long-lived one.
+        let resp = self
+            .http
+            .get(LONG_LIVED_TOKEN_URL)
+            .query(&[("grant_type", "ig_exchange_token"), ("client_secret", config.client_secret.as_str()), ("access_token", short_lived.as_str())])
+            .send()
+            .await
+            .map_err(map_transport_error)?;
+        let status = resp.status();
+        let body = resp.text().await.map_err(map_transport_error)?;
+        if !status.is_success() {
+            return Err(map_http_status(status, &body));
+        }
+        #[derive(serde::Deserialize)]
+        struct LongLivedTokenResponse {
             access_token: String,
             expires_in: Option<i64>,
         }
-        let parsed: TokenResponse = serde_json::from_str(&body).map_err(|e| AdapterError::Permanent(format!("Unexpected token response: {e}")))?;
+        let long_lived: LongLivedTokenResponse = serde_json::from_str(&body).map_err(|e| AdapterError::Permanent(format!("Unexpected long-lived token response: {e}")))?;
 
         let credential_ref = format!("nzyselle:instagram:{}", generate_id());
         save_tokens(
             self.credentials.as_ref(),
             &credential_ref,
-            &StoredTokens { access_token: parsed.access_token.clone(), refresh_token: None, expires_at: parsed.expires_in.map(|s| Utc::now() + Duration::seconds(s)) },
+            &StoredTokens { access_token: long_lived.access_token.clone(), refresh_token: None, expires_at: long_lived.expires_in.map(|s| Utc::now() + Duration::seconds(s)) },
         )?;
 
-        let ig_user_id = self.ig_user_id(&parsed.access_token).await?;
-        let resp = self.http.get(graph_url(&ig_user_id)).query(&[("fields", "username,profile_picture_url"), ("access_token", parsed.access_token.as_str())]).send().await.map_err(map_transport_error)?;
-        let status = resp.status();
-        let text = resp.text().await.map_err(map_transport_error)?;
-        if !status.is_success() {
-            return Err(map_http_status(status, &text));
-        }
-        #[derive(serde::Deserialize)]
-        struct IgProfile {
-            username: Option<String>,
-            profile_picture_url: Option<String>,
-        }
-        let profile: IgProfile = serde_json::from_str(&text).map_err(|e| AdapterError::Permanent(e.to_string()))?;
-
+        let me = self.fetch_me(&long_lived.access_token).await?;
         Ok(AuthorizedIdentity {
-            platform_account_id: ig_user_id,
-            display_name: profile.username.clone(),
-            username: profile.username,
-            profile_image_url: profile.profile_picture_url,
+            platform_account_id: me.user_id,
+            display_name: me.username.clone(),
+            username: me.username,
+            profile_image_url: me.profile_picture_url,
             granted_scopes: vec![],
             missing_scopes: vec![],
             credential_ref,
-            token_expires_at: None,
+            token_expires_at: long_lived.expires_in.map(|s| Utc::now() + Duration::seconds(s)),
         })
     }
 
     async fn refresh_authorization(&self, credential_ref: &str) -> Result<(), AdapterError> {
-        let config = load_client_config(self.credentials.as_ref(), "instagram")?;
         let tokens = load_tokens(self.credentials.as_ref(), credential_ref)?;
+        // Instagram's long-lived tokens refresh themselves -- no separate
+        // refresh_token concept, just the current access_token plus the
+        // app's ability to call this endpoint (requires the token to be
+        // >=24h old and still valid, and instagram_business_basic to have
+        // been granted -- both real documented constraints, not enforced
+        // client-side here; a failure surfaces as a normal API error).
         let resp = self
             .http
-            .get(TOKEN_URL)
-            .query(&[
-                ("grant_type", "fb_exchange_token"),
-                ("client_id", config.client_id.as_str()),
-                ("client_secret", config.client_secret.as_str()),
-                ("fb_exchange_token", tokens.access_token.as_str()),
-            ])
+            .get(REFRESH_TOKEN_URL)
+            .query(&[("grant_type", "ig_refresh_token"), ("access_token", tokens.access_token.as_str())])
             .send()
             .await
             .map_err(map_transport_error)?;
@@ -236,8 +271,17 @@ impl ProviderAdapter for InstagramAdapter {
 
     async fn get_connected_identity(&self, credential_ref: &str) -> Result<AuthorizedIdentity, AdapterError> {
         let tokens = load_tokens(self.credentials.as_ref(), credential_ref)?;
-        let ig_user_id = self.ig_user_id(&tokens.access_token).await?;
-        Ok(AuthorizedIdentity { platform_account_id: ig_user_id, display_name: None, username: None, profile_image_url: None, granted_scopes: vec![], missing_scopes: vec![], credential_ref: credential_ref.to_string(), token_expires_at: None })
+        let me = self.fetch_me(&tokens.access_token).await?;
+        Ok(AuthorizedIdentity {
+            platform_account_id: me.user_id,
+            display_name: me.username.clone(),
+            username: me.username,
+            profile_image_url: me.profile_picture_url,
+            granted_scopes: vec![],
+            missing_scopes: vec![],
+            credential_ref: credential_ref.to_string(),
+            token_expires_at: None,
+        })
     }
 
     async fn validate_connection(&self, credential_ref: &str) -> Result<(), AdapterError> {
@@ -254,7 +298,9 @@ impl ProviderAdapter for InstagramAdapter {
     }
 
     async fn get_creator_posting_options(&self, _credential_ref: &str) -> Result<CreatorPostingOptions, AdapterError> {
-        Ok(CreatorPostingOptions { available_privacy_levels: vec!["PUBLIC".into()], can_disable_comments: true, can_disable_duet: false, can_disable_stitch: false, max_duration_seconds: Some(900.0), posting_cap_remaining: Some(25), extra: serde_json::json!({}) })
+        // 2200 chars is the Instagram API's documented media caption limit:
+        // https://developers.facebook.com/docs/instagram-platform/reference/instagram-media
+        Ok(CreatorPostingOptions { available_privacy_levels: vec!["PUBLIC".into()], can_disable_comments: true, can_disable_duet: false, can_disable_stitch: false, max_duration_seconds: Some(900.0), max_caption_length: Some(2200), posting_cap_remaining: Some(25), extra: serde_json::json!({}) })
     }
 
     async fn estimate_request_cost(&self, _operation: &str) -> Result<CostEstimate, AdapterError> {
@@ -263,7 +309,7 @@ impl ProviderAdapter for InstagramAdapter {
 
     async fn initialize_upload(&self, _credential_ref: &str, _file_path: &str, _metadata: &UploadMetadata) -> Result<UploadHandle, AdapterError> {
         Err(AdapterError::NotSupported(
-            "Instagram's Graph API only accepts a publicly-hosted video URL, not a direct local file upload. Host the file somewhere reachable and pass its URL, or use another platform.".to_string(),
+            "Instagram's API only accepts a publicly-hosted video URL, not a direct local file upload. Host the file somewhere reachable and pass its URL, or use another platform.".to_string(),
         ))
     }
 
@@ -283,7 +329,8 @@ impl ProviderAdapter for InstagramAdapter {
             .ok_or_else(|| AdapterError::NotSupported("Instagram requires a publicly-hosted video URL in platform_specific.mediaUrl -- see module docs.".to_string()))?;
 
         let tokens = load_tokens(self.credentials.as_ref(), credential_ref)?;
-        let ig_user_id = self.ig_user_id(&tokens.access_token).await?;
+        let me = self.fetch_me(&tokens.access_token).await?;
+        let ig_user_id = me.user_id;
 
         let resp = self
             .http

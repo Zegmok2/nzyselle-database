@@ -1205,7 +1205,7 @@ dependencies = [
 
 [[package]]
 name = "nzyselle-core"
-version = "0.2.1"
+version = "0.4.8"
 dependencies = [
  "async-trait",
  "base64",

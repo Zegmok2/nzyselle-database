@@ -1,6 +1,6 @@
 [package]
 name = "nzyselle-core"
-version = "0.3.0"
+version = "0.4.9"
 edition = "2021"
 description = "Platform-agnostic domain logic for Nzyselle Database: provider adapter contract, capability registry, mock/sandbox adapter. No GUI or Tauri dependency on purpose, so it stays testable anywhere."
 

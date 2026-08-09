@@ -52,9 +52,9 @@ impl CallbackServer {
     /// Binds a fresh loopback-only listener and starts accepting exactly
     /// one valid callback in the background. `expected_state` must be the
     /// same random value passed to the provider's authorization URL.
-    pub async fn start(expected_state: impl Into<String>) -> Result<Self, CallbackError> {
+    pub async fn start(expected_state: impl Into<String>, max_wait: Duration) -> Result<Self, CallbackError> {
         let (listener, port) = Self::bind().await?;
-        Ok(Self::listen(listener, port, expected_state))
+        Ok(Self::listen(listener, port, expected_state, max_wait))
     }
 
     /// Binds the loopback listener only, without starting to accept a
@@ -79,12 +79,24 @@ impl CallbackServer {
     }
 
     /// Starts accepting exactly one valid callback on an already-bound
-    /// listener (see `bind`).
-    pub fn listen(listener: TcpListener, port: u16, expected_state: impl Into<String>) -> Self {
+    /// listener (see `bind`). The `max_wait` timeout lives INSIDE this
+    /// spawned task, wrapped around the future that actually owns
+    /// `listener` -- that's what makes the port genuinely release itself
+    /// when time runs out. An earlier version only timed out the caller's
+    /// `wait_for_callback` wait, which did nothing to the still-running
+    /// background task still holding the socket -- for a fixed-port
+    /// platform (TikTok, Instagram) that meant a single abandoned/timed-out
+    /// connect attempt could permanently block every later attempt with an
+    /// "address already in use" OS error, confirmed against a real
+    /// Instagram connect attempt that collided with an earlier one.
+    pub fn listen(listener: TcpListener, port: u16, expected_state: impl Into<String>, max_wait: Duration) -> Self {
         let expected_state = expected_state.into();
         let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            let outcome = accept_one_valid_callback(listener, &expected_state).await;
+            let outcome = match timeout(max_wait, accept_one_valid_callback(listener, &expected_state)).await {
+                Ok(result) => result,
+                Err(_) => Err(CallbackError::Timeout),
+            };
             let _ = tx.send(outcome);
         });
         Self { port, result_rx: rx }
@@ -94,15 +106,12 @@ impl CallbackServer {
         format!("http://127.0.0.1:{}/callback", self.port)
     }
 
-    /// Waits for a valid callback, up to `max_wait`. This is the "short-lived
-    /// callback listener" requirement — the app is not allowed to leave a
-    /// listening socket open indefinitely.
-    pub async fn wait_for_callback(self, max_wait: Duration) -> Result<CallbackResult, CallbackError> {
-        match timeout(max_wait, self.result_rx).await {
-            Ok(Ok(inner)) => inner,
-            Ok(Err(_)) => Err(CallbackError::Closed),
-            Err(_) => Err(CallbackError::Timeout),
-        }
+    /// Waits for the outcome the spawned task already resolves within its
+    /// own `max_wait` (passed to `listen`/`start`) -- no separate timeout
+    /// needed here, since the thing that actually holds the socket open is
+    /// already bounded.
+    pub async fn wait_for_callback(self) -> Result<CallbackResult, CallbackError> {
+        self.result_rx.await.unwrap_or(Err(CallbackError::Closed))
     }
 }
 
@@ -235,52 +244,70 @@ mod tests {
 
     #[tokio::test]
     async fn accepts_a_valid_callback_and_returns_the_code() {
-        let server = CallbackServer::start("state-abc-123").await.unwrap();
+        let server = CallbackServer::start("state-abc-123", Duration::from_secs(2)).await.unwrap();
         let port = server.port;
 
         tokio::spawn(async move {
             send_get(port, "/callback?code=auth-code-xyz&state=state-abc-123").await;
         });
 
-        let result = server.wait_for_callback(Duration::from_secs(2)).await.unwrap();
+        let result = server.wait_for_callback().await.unwrap();
         assert_eq!(result.code, "auth-code-xyz");
         assert_eq!(result.state, "state-abc-123");
     }
 
     #[tokio::test]
     async fn rejects_a_mismatched_state_instead_of_accepting_the_code() {
-        let server = CallbackServer::start("expected-state").await.unwrap();
+        let server = CallbackServer::start("expected-state", Duration::from_secs(2)).await.unwrap();
         let port = server.port;
 
         tokio::spawn(async move {
             send_get(port, "/callback?code=stolen-code&state=wrong-state").await;
         });
 
-        let result = server.wait_for_callback(Duration::from_secs(2)).await;
+        let result = server.wait_for_callback().await;
         assert!(matches!(result, Err(CallbackError::StateMismatch)));
     }
 
     #[tokio::test]
     async fn times_out_if_the_browser_never_completes_the_flow() {
-        let server = CallbackServer::start("state-1").await.unwrap();
-        let result = server.wait_for_callback(Duration::from_millis(150)).await;
+        let server = CallbackServer::start("state-1", Duration::from_millis(150)).await.unwrap();
+        let result = server.wait_for_callback().await;
         assert!(matches!(result, Err(CallbackError::Timeout)));
     }
 
     #[tokio::test]
+    async fn timing_out_actually_releases_the_port_instead_of_leaking_the_listener() {
+        // Regression test for a real confirmed bug: the timeout used to only
+        // apply to the caller's wait, not the spawned task that owns the
+        // TcpListener, so a timed-out attempt left the port permanently
+        // bound and broke every later connect attempt on a fixed port
+        // (TikTok/Instagram) with an OS "address already in use" error.
+        let server = CallbackServer::start("state-1", Duration::from_millis(100)).await.unwrap();
+        let port = server.port;
+        let result = server.wait_for_callback().await;
+        assert!(matches!(result, Err(CallbackError::Timeout)));
+
+        // If the spawned task were still holding the listener, this bind
+        // would fail with "address already in use".
+        let rebind = CallbackServer::bind_on(port).await;
+        assert!(rebind.is_ok(), "port should be free again after the listener's own timeout elapsed");
+    }
+
+    #[tokio::test]
     async fn redirect_uri_points_only_at_loopback() {
-        let server = CallbackServer::start("state-1").await.unwrap();
+        let server = CallbackServer::start("state-1", Duration::from_secs(2)).await.unwrap();
         assert!(server.redirect_uri().starts_with("http://127.0.0.1:"));
     }
 
     #[tokio::test]
     async fn missing_code_is_reported_distinctly_from_a_mismatch() {
-        let server = CallbackServer::start("state-1").await.unwrap();
+        let server = CallbackServer::start("state-1", Duration::from_secs(2)).await.unwrap();
         let port = server.port;
         tokio::spawn(async move {
             send_get(port, "/callback?error=access_denied&state=state-1").await;
         });
-        let result = server.wait_for_callback(Duration::from_secs(2)).await;
+        let result = server.wait_for_callback().await;
         assert!(matches!(result, Err(CallbackError::MissingCode)));
     }
 }

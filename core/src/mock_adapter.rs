@@ -163,6 +163,7 @@ impl ProviderAdapter for SandboxAdapter {
             can_disable_duet: false,
             can_disable_stitch: false,
             max_duration_seconds: Some(180.0),
+            max_caption_length: Some(500),
             posting_cap_remaining: Some(50),
             extra: serde_json::json!({ "note": "sandbox — no real posting cap enforced" }),
         })

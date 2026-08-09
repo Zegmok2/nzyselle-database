@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import changeTheWorldAudioUrl from "../assets/change-the-world.mp3";
+import ndVoiceAudioUrl from "../assets/n-d-robot-voice.mp3";
 
 interface SplashScreenProps {
   /** From Settings > splash animation. "off" skips straight through. */
@@ -156,12 +157,14 @@ type Phase = "boot" | "rain" | "collapse" | "cut" | "phrase-in" | "phrase-hold" 
  *     CELL/speed constants inside the rain drawing effect.
  *   - Rain duration: RAIN_MS (currently a fixed 5s in full mode).
  *   - The black pause between the cut and the phrase: BLACK_HOLD_MS.
- *   - The "N D" voice: the speakND effect below -- delay before it starts,
- *     the pause between letters, and the rate/pitch/volume passed to each
- *     SpeechSynthesisUtterance (lower pitch + slower rate = more robotic).
- *     Synthesized via the browser's built-in Web Speech API, not a real
- *     recording -- there's no literal Stephen Hawking voice clone here,
- *     just a deliberately slow, flat, synthetic delivery in that spirit.
+ *   - The "N D" voice: src/assets/n-d-robot-voice.mp3, played by the
+ *     ndAudioRef effect below. NOT a live browser SpeechSynthesisUtterance
+ *     (that sounded like plain OS text-to-speech) and NOT a real recording
+ *     of anyone's voice -- it's a locally-synthesized SAPI "N... D..."
+ *     clip run through an offline ffmpeg effects chain (pitch-shift,
+ *     flanger, tremolo, chorus, bitcrush) to give it a distinct synthetic/
+ *     robotic character. Swap the file (keep the same name) to change it,
+ *     or delete the ndAudioRef effects below to remove the voice entirely.
  *   - Film grain: the grain overlay's `opacity` in the render below.
  *   - The phrase: PHRASE (only A,C,D,E,G,H,L,N,O,R,T,W,space,period have
  *     glyphs defined in GLYPH_5X7 -- add more rows there for other letters).
@@ -200,6 +203,7 @@ export function SplashScreen({ mode, onComplete }: SplashScreenProps) {
   const completedRef = useRef(false);
   const revealFlashedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ndAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxCtxRef = useRef<AudioContext | null>(null);
   const humOscRef = useRef<OscillatorNode | null>(null);
   const humGainRef = useRef<GainNode | null>(null);
@@ -281,62 +285,34 @@ export function SplashScreen({ mode, onComplete }: SplashScreenProps) {
     return () => clearTimeout(t);
   }, [phase, skipEntirely, RAIN_MS, COLLAPSE_MS]);
 
-  // A robotic voice slowly saying "N... D..." partway through the rain.
-  // Synthesized via the browser's built-in Web Speech API -- there's no
-  // audio asset here, and this is NOT a real recording of anyone's voice;
-  // a low pitch + slow rate just gives it that flat, synthetic-TTS
-  // character. Silently does nothing wherever speechSynthesis isn't
-  // available (older WebView2, or the "short" test mode).
+  // A synthesized robotic voice saying "N... D..." partway through the
+  // rain -- a baked audio clip (src/assets/n-d-robot-voice.mp3), not a
+  // live browser SpeechSynthesisUtterance call (that sounded like plain
+  // OS text-to-speech). Created once up front rather than inside the
+  // "rain"-scoped effect below, for the same reason as audioRef above:
+  // scoping creation to the phase would tie its cleanup to that phase
+  // too, risking a cutoff if timing ever changes.
+  useEffect(() => {
+    if (skipEntirely || mode === "short") return;
+    try {
+      ndAudioRef.current = new Audio(ndVoiceAudioUrl);
+      ndAudioRef.current.volume = 0.8;
+    } catch {
+      // ignore -- purely additive, never blocks the visual sequence
+    }
+    return () => {
+      ndAudioRef.current?.pause();
+      ndAudioRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skipEntirely, mode]);
+
   useEffect(() => {
     if (skipEntirely || mode === "short" || phase !== "rain") return;
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    const synth = window.speechSynthesis;
-    let cancelled = false;
-    let pauseTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function pickVoice(): SpeechSynthesisVoice | null {
-      const voices = synth.getVoices();
-      if (voices.length === 0) return null;
-      return voices.find((v) => /david|male|mark|guy/i.test(v.name)) ?? voices[0];
-    }
-
-    function speakLetter(letter: string, onDone: () => void) {
-      if (cancelled) return;
-      try {
-        const utter = new SpeechSynthesisUtterance(letter);
-        utter.rate = 0.5;
-        utter.pitch = 0.3;
-        utter.volume = 0.8;
-        const voice = pickVoice();
-        if (voice) utter.voice = voice;
-        utter.onend = () => {
-          if (!cancelled) onDone();
-        };
-        utter.onerror = () => {
-          if (!cancelled) onDone();
-        };
-        synth.speak(utter);
-      } catch {
-        onDone();
-      }
-    }
-
-    const startTimer = setTimeout(() => {
-      speakLetter("N", () => {
-        pauseTimer = setTimeout(() => speakLetter("D", () => {}), 600);
-      });
+    const t = setTimeout(() => {
+      void ndAudioRef.current?.play().catch(() => {});
     }, 700);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(startTimer);
-      if (pauseTimer) clearTimeout(pauseTimer);
-      try {
-        synth.cancel();
-      } catch {
-        // ignore
-      }
-    };
+    return () => clearTimeout(t);
   }, [phase, skipEntirely, mode]);
 
   // A brief "sync" pulse shortly before the rain collapses -- punctuates

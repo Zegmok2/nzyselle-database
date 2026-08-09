@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PlatformDefinition, SocialConnection } from "../lib/types";
 import { useBackend } from "../lib/backendContext";
+import { Badge, PageToolbar, PlatformBadge, PrimaryButton, SecondaryButton, Skeleton, Switch } from "./dashboard/Toolbar";
 
 const STATUS_LABEL: Record<SocialConnection["status"], string> = {
   not_connected: "Not connected",
@@ -16,6 +17,20 @@ const STATUS_LABEL: Record<SocialConnection["status"], string> = {
   assisted_only: "Supported only through assisted posting",
 };
 
+const STATUS_TONE: Record<SocialConnection["status"], "success" | "error" | "warning" | "neutral"> = {
+  not_connected: "neutral",
+  connected_enabled: "success",
+  connected_disabled: "neutral",
+  needs_reauth: "warning",
+  missing_publish_permission: "warning",
+  missing_analytics_permission: "warning",
+  blocked_review: "error",
+  rate_limited: "warning",
+  temporarily_unavailable: "warning",
+  requires_paid_plan: "warning",
+  assisted_only: "warning",
+};
+
 /** `status` reflects platform-reported connection health; `enabled` is a
  * separate, purely local preference (per spec: "connection and enablement
  * are different states"). This derives the *displayed* status by
@@ -26,23 +41,6 @@ function displayStatus(connection: SocialConnection): SocialConnection["status"]
     return connection.enabled ? "connected_enabled" : "connected_disabled";
   }
   return connection.status;
-}
-
-function StatusDot({ status }: { status: SocialConnection["status"] }) {
-  const color =
-    status === "connected_enabled"
-      ? "var(--success)"
-      : status === "connected_disabled"
-        ? "var(--text-tertiary)"
-        : status === "not_connected"
-          ? "var(--text-tertiary)"
-          : "var(--warning)";
-  return (
-    <span
-      aria-hidden
-      style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }}
-    />
-  );
 }
 
 function PlatformCard({
@@ -70,6 +68,7 @@ function PlatformCard({
   // would be exactly the "fake successful connection" the product spec
   // forbids, so those cards say so plainly instead until configured.
   const hasRealAdapter = platform.isSandbox || hasCredentials;
+  const status = connection ? displayStatus(connection) : "not_connected";
 
   async function handleConnect() {
     setConnecting(true);
@@ -98,91 +97,53 @@ function PlatformCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div
-          aria-hidden
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: "var(--panel-soft)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 13,
-            fontWeight: 700,
-          }}
-        >
-          {platform.displayName[0]}
-        </div>
+        <PlatformBadge platformId={platform.id} label={platform.displayName} size={36} />
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontWeight: 600 }}>{platform.displayName}</span>
-            {platform.isSandbox && (
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  color: "var(--warning)",
-                  border: "1px solid var(--warning)",
-                  borderRadius: 4,
-                  padding: "1px 5px",
-                }}
-              >
-                DEV ONLY
-              </span>
-            )}
+            <span style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{platform.displayName}</span>
+            {platform.isSandbox && <Badge tone="warning">DEV ONLY</Badge>}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)" }}>
-            <StatusDot status={connection ? displayStatus(connection) : "not_connected"} />
-            {STATUS_LABEL[connection ? displayStatus(connection) : "not_connected"]}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-base)", color: "var(--text-secondary)", marginTop: 2 }}>
+            <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
           </div>
         </div>
         {connection && (
-          <label
-            title={connection.enabled ? "Excludes this account from new posts without disconnecting it" : "Re-enable this account for new posts"}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}
-          >
-            {connection.enabled ? "Enabled" : "Disabled"}
-            <input
-              type="checkbox"
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>{connection.enabled ? "Enabled" : "Disabled"}</span>
+            <Switch
               checked={connection.enabled}
-              onChange={(e) => onToggleEnabled(e.target.checked)}
-              aria-label={`${connection.enabled ? "Disable" : "Enable"} ${platform.displayName} for new posts`}
+              onChange={onToggleEnabled}
+              ariaLabel={`${connection.enabled ? "Disable" : "Enable"} ${platform.displayName} for new posts`}
             />
-          </label>
+          </div>
         )}
       </div>
 
       {connection ? (
         <>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2 }}>
-            <span>{connection.displayName} · {connection.username}</span>
-            <span>Granted: {connection.grantedScopes.join(", ") || "none"}</span>
-            {connection.missingScopes.length > 0 && (
-              <span style={{ color: "var(--warning)" }}>Missing: {connection.missingScopes.join(", ")}</span>
-            )}
+          <div style={{ fontSize: "var(--text-base)", color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2 }}>
             <span>
-              Last synced: {connection.lastSyncedAt ? new Date(connection.lastSyncedAt).toLocaleString() : "Never"}
+              {connection.displayName} · {connection.username}
             </span>
+            <span>Granted: {connection.grantedScopes.join(", ") || "none"}</span>
+            {connection.missingScopes.length > 0 && <span style={{ color: "var(--warning)" }}>Missing: {connection.missingScopes.join(", ")}</span>}
+            <span>Last synced: {connection.lastSyncedAt ? new Date(connection.lastSyncedAt).toLocaleString() : "Never"}</span>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="nz-btn-secondary" style={secondaryBtn} onClick={onDisconnect}>
-              Disconnect
-            </button>
+            <SecondaryButton onClick={onDisconnect}>Disconnect</SecondaryButton>
           </div>
         </>
       ) : hasRealAdapter ? (
         <>
-          <button className="nz-btn-primary" style={primaryBtn} onClick={handleConnect} disabled={connecting}>
+          <PrimaryButton onClick={handleConnect} disabled={connecting}>
             {connecting ? "Waiting for browser..." : `Attach ${platform.displayName} here`}
-          </button>
-          {connectError && <div style={{ color: "var(--error)", fontSize: 12 }}>{connectError}</div>}
+          </PrimaryButton>
+          {connectError && <div style={{ color: "var(--error)", fontSize: "var(--text-sm)" }}>{connectError}</div>}
         </>
       ) : (
         <div
           style={{
-            fontSize: 12,
+            fontSize: "var(--text-sm)",
             color: "var(--text-tertiary)",
             padding: "8px 10px",
             background: "var(--panel-soft)",
@@ -191,15 +152,14 @@ function PlatformCard({
         >
           {platform.isSandbox
             ? "Real connections aren't implemented yet — see docs/LIMITATIONS.md."
-            : `Add a ${platform.displayName} developer app Client ID/Secret in Workspace Settings first. The real adapter exists but has never been run against a live account — see core/src/${platform.id}_adapter.rs.`}
-          {" "}Connecting here does nothing rather than faking a successful connection.
+            : `Add a ${platform.displayName} developer app Client ID/Secret in Workspace Settings first. The real adapter exists but has never been run against a live account — see core/src/${platform.id}_adapter.rs.`}{" "}
+          Connecting here does nothing rather than faking a successful connection.
         </div>
       )}
 
       {hasRealAdapter && !connection && (
-        <p style={{ margin: 0, fontSize: 11, color: "var(--text-tertiary)" }}>
-          Uses official OAuth in your default browser. Nzyselle Database never asks for your{" "}
-          {platform.displayName} password.
+        <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
+          Uses official OAuth in your default browser. Nzyselle Database never asks for your {platform.displayName} password.
         </p>
       )}
     </div>
@@ -244,18 +204,23 @@ export function ConnectionsPage({ workspaceId }: { workspaceId: string }) {
   }
 
   if (loading) {
-    return <div style={{ padding: 32, color: "var(--text-secondary)" }}>Loading connections…</div>;
+    return (
+      <div style={{ padding: 32, display: "flex", flexDirection: "column", gap: 20, maxWidth: "var(--content-max-width)", margin: "0 auto" }}>
+        <Skeleton height={32} width={200} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+          <Skeleton height={160} />
+          <Skeleton height={160} />
+        </div>
+      </div>
+    );
   }
 
   return (
     <div style={{ padding: 32, display: "flex", flexDirection: "column", gap: 20, maxWidth: "var(--content-max-width)", margin: "0 auto" }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Connections</h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 4 }}>
-          Connecting is not the same as enabling. A disabled account keeps its authorization and
-          history but is excluded from new posts until you turn it back on.
-        </p>
-      </div>
+      <PageToolbar
+        title="Connections"
+        description="Connecting is not the same as enabling. A disabled account keeps its authorization and history but is excluded from new posts until you turn it back on."
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
         {platforms.map((platform) => (
@@ -279,24 +244,3 @@ export function ConnectionsPage({ workspaceId }: { workspaceId: string }) {
     </div>
   );
 }
-
-const primaryBtn: React.CSSProperties = {
-  padding: "9px 14px",
-  borderRadius: "var(--radius-sm)",
-  border: "none",
-  background: "var(--accent-gradient)",
-  color: "#ffffff",
-  fontWeight: 600,
-  fontSize: 13,
-  cursor: "pointer",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border-subtle)",
-  background: "transparent",
-  color: "var(--text-secondary)",
-  fontSize: 13,
-  cursor: "pointer",
-};

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { TestBackendProvider } from "../lib/backendContext";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -14,10 +14,13 @@ beforeEach(() => {
 
 /** The chart's Y-axis tick labels can coincidentally show the same number
  * as the stat tile (e.g. both showing "128"), so a plain findByText("128")
- * can match more than one element. Scope to the "Total" tile specifically. */
+ * can match more than one element. Scope to the "Total" StatCard
+ * specifically -- its DOM is [row(label+delta), valueDiv, hintDiv?]
+ * (see dashboard/StatCard.tsx), so the value is the card's 2nd child. */
 function totalValueText(): string {
   const label = screen.getByText("Total");
-  return label.parentElement!.querySelector("div:nth-child(2)")!.textContent ?? "";
+  const card = label.closest(".nz-card")!;
+  return card.querySelector(":scope > div:nth-child(2)")!.textContent ?? "";
 }
 
 describe("Analytics page", () => {
@@ -87,6 +90,8 @@ describe("Templates page", () => {
 
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     await user.click(deleteButtons[0]);
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: /delete/i }));
     await waitFor(() => expect(screen.queryByText("Reels caption")).not.toBeInTheDocument());
   });
 });

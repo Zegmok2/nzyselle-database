@@ -67,6 +67,20 @@ export interface CapabilityInfo {
   notes?: string;
 }
 
+/** Real per-platform posting limits, straight from the connection's own
+ * adapter (core/src/adapter.rs's CreatorPostingOptions) -- never
+ * fabricated frontend constants. Any field can be null/absent when the
+ * platform doesn't document a limit. */
+export interface CreatorPostingOptions {
+  availablePrivacyLevels: string[];
+  canDisableComments: boolean;
+  canDisableDuet: boolean;
+  canDisableStitch: boolean;
+  maxDurationSeconds?: number;
+  maxCaptionLength?: number;
+  postingCapRemaining?: number;
+}
+
 /** The literal string the UI must render for any metric the platform
  * doesn't provide. Never substitute a zero. */
 export const NOT_PROVIDED = "Not provided by this platform";
@@ -120,6 +134,7 @@ export interface Campaign {
   videoAssetId: string;
   internalName?: string;
   sharedCaption?: string;
+  sharedHashtags: string[];
   status: DestinationPostStatus;
   scheduledFor?: string;
   createdAt: string;
@@ -131,6 +146,7 @@ export interface SubmitCampaignInput {
   videoAssetId: string;
   internalName?: string;
   sharedCaption?: string;
+  sharedHashtags?: string[];
   connectionIds: string[];
   captionOverrides?: Record<string, string>;
   /** ISO timestamp; omit to post now. */

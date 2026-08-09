@@ -26,9 +26,18 @@ This app's OAuth flow opens your system browser and briefly listens on
   redirect URI exactly. If that port happens to be in use by something
   else on your machine when you try to connect, the connection attempt
   will fail with a bind error — close whatever's using it and retry.
-- **Instagram (Meta)**: same constraint as TikTok. This app uses **fixed
-  port 47984** for Instagram — register `http://127.0.0.1:47984/callback`
-  exactly in your Meta app's redirect URI settings.
+- **Instagram (Meta)**: same fixed-port constraint as TikTok, **plus a
+  bigger Meta-specific quirk confirmed live**: Meta's "Business Login for
+  Instagram" flow has no loopback/localhost exception at all — it rejects
+  both a bare-IP redirect and a plain `http://localhost` one outright
+  ("Error saving redirect URIs"). This app therefore sends Instagram
+  through a small static bridge page hosted on GitHub Pages,
+  `https://zegmok2.github.io/nzyselle-database/instagram-redirect.html`
+  (source: `docs/instagram-redirect.html`), which immediately forwards
+  the browser to this app's real local callback listener with the same
+  query string — register that bridge URL, not a localhost one, in your
+  Meta app's Instagram **OAuth redirect URIs** (see
+  `INSTAGRAM_REDIRECT_BRIDGE_URL` in `src-tauri/src/commands.rs`).
 
 (See `fixed_oauth_port_for` in `src-tauri/src/commands.rs` if you ever need
 to change these port numbers — just keep the registered redirect URI in
@@ -57,14 +66,44 @@ each developer portal in sync with whatever you pick.)
   Display API.
 
 ## Instagram
-- Docs: https://developers.facebook.com/docs/instagram-platform/
-- OAuth connection: supported.
-- Direct publish: supported via the Graph API, but **requires a
-  professional (business or creator) account linked to a Facebook Page.**
-  A personal Instagram account cannot be used for API publishing at all.
-- Native licensed-music selection: **not exposed via the Graph API.**
-  There is no official way to programmatically pick Instagram's in-app
-  music catalog for a Reel. Content with embedded/original audio can be
+- Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/
+- **Uses "Instagram API with Instagram Login" (Business Login for
+  Instagram), not the older Facebook Login flow** — confirmed live after a
+  real "Invalid Scopes" rejection with the old flow's permission names,
+  followed by checking the actual App Dashboard configuration. This means:
+  - **Credentials are the "Instagram App ID"/"Instagram app secret"**
+    shown under App Dashboard > Instagram > **API setup with Instagram
+    login** > Business login settings — **not** the Facebook "App ID"/
+    "App Secret" from App Settings > Basic. Paste the Instagram-specific
+    ones into Nzyselle's Settings > Platform Developer Apps > Instagram.
+  - Scopes are the newer `instagram_business_basic`,
+    `instagram_business_content_publish`,
+    `instagram_business_manage_comments`,
+    `instagram_business_manage_messages` — the older `instagram_basic`/
+    `instagram_content_publish` names are deprecated for this flow.
+  - The redirect URI must be registered under App Dashboard > Instagram >
+    API setup with Instagram login > Business login settings > **OAuth
+    redirect URIs** (a different settings page from "Facebook Login for
+    Business" > Client OAuth Settings). **This flow has no loopback/
+    localhost exception at all** -- confirmed live after Meta rejected
+    both `http://localhost:47984/callback` and a trailing-slash variant
+    with "Error saving redirect URIs", and confirmed against Meta's own
+    docs (every example redirect_uri shown is a real HTTPS domain, none
+    is localhost). Register
+    `https://zegmok2.github.io/nzyselle-database/instagram-redirect.html`
+    instead -- a small static page (`docs/instagram-redirect.html`) that
+    immediately forwards the browser to this app's real local callback
+    listener with the same query string, so the OAuth code/state still
+    only ever reaches your machine (see `INSTAGRAM_REDIRECT_BRIDGE_URL`
+    in `src-tauri/src/commands.rs`).
+- OAuth connection: supported (via the flow above).
+- Direct publish: supported, requires a professional (Business or
+  Creator) Instagram account — a personal account cannot be used for API
+  publishing at all. This flow does **not** require a linked Facebook
+  Page (that was specifically a Facebook-Login-flow requirement).
+- Native licensed-music selection: **not exposed via the API.** There is
+  no official way to programmatically pick Instagram's in-app music
+  catalog for a Reel. Content with embedded/original audio can be
   published directly; native music requires the user to finish the post
   inside Instagram itself ("Finish in Instagram" mode).
 - Reach, saves: available metrics for professional accounts.

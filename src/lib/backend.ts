@@ -12,6 +12,7 @@ import type {
   BackupRecord,
   Campaign,
   CaptionTemplate,
+  CreatorPostingOptions,
   DiagnosticEvent,
   HashtagSet,
   MetricDefinitionOption,
@@ -62,6 +63,10 @@ export interface Backend {
 
   submitCampaign(input: SubmitCampaignInput): Promise<Campaign>;
   listCampaigns(workspaceId: string): Promise<Campaign[]>;
+  /** Real per-platform posting limits for a connection (caption length,
+   * duration, privacy levels) -- straight from that platform's adapter,
+   * never a frontend-hardcoded guess. */
+  getPostingOptions(connectionId: string): Promise<CreatorPostingOptions>;
   cancelScheduledPost(destinationPostId: string): Promise<void>;
   retryDestinationPost(destinationPostId: string): Promise<void>;
 

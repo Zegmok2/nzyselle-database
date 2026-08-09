@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { TestBackendProvider } from "../lib/backendContext";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -106,6 +106,8 @@ describe("Library page", () => {
     await screen.findByText("temp.mp4");
 
     await user.click(screen.getByRole("button", { name: /remove/i }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: /remove/i }));
     await waitFor(() => expect(screen.queryByText("temp.mp4")).not.toBeInTheDocument());
 
     const videos = await mockBackend.listVideos("ws_1");

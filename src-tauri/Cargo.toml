@@ -1,6 +1,6 @@
 [package]
 name = "nzyselle-database"
-version = "0.3.0"
+version = "0.4.9"
 edition = "2021"
 description = "Nzyselle Database desktop shell"
 

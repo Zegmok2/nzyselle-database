@@ -30,8 +30,7 @@ describe("Publish -> Videos -> Calendar", () => {
       </TestBackendProvider>,
     );
 
-    const videoSelect = await screen.findByLabelText(/video/i);
-    await user.selectOptions(videoSelect, "outfit.mp4");
+    await user.click(await screen.findByRole("button", { name: /outfit\.mp4/i }));
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /post now/i }));
 
@@ -56,8 +55,7 @@ describe("Publish -> Videos -> Calendar", () => {
       </TestBackendProvider>,
     );
 
-    const videoSelect = await screen.findByLabelText(/video/i);
-    await user.selectOptions(videoSelect, "outfit.mp4");
+    await user.click(await screen.findByRole("button", { name: /outfit\.mp4/i }));
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("radio", { name: /schedule for later/i }));
 

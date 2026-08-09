@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Campaign } from "../lib/types";
 import { useBackend } from "../lib/backendContext";
-import { SecondaryButton, EmptyState } from "./dashboard/Toolbar";
+import { EmptyState, PageToolbar, PlatformBadge, SecondaryButton, Skeleton } from "./dashboard/Toolbar";
+import { CalendarClock } from "lucide-react";
 
 export function CalendarPage({ workspaceId }: { workspaceId: string }) {
   const backend = useBackend();
@@ -28,7 +29,13 @@ export function CalendarPage({ workspaceId }: { workspaceId: string }) {
   }
 
   if (loading) {
-    return <div style={{ padding: 32, color: "var(--text-secondary)" }}>Loading…</div>;
+    return (
+      <div style={{ padding: 32, maxWidth: "var(--content-max-width)", margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+        <Skeleton height={32} width={160} />
+        <Skeleton height={70} />
+        <Skeleton height={70} />
+      </div>
+    );
   }
 
   const upcoming = campaigns
@@ -36,17 +43,14 @@ export function CalendarPage({ workspaceId }: { workspaceId: string }) {
     .sort((a, b) => new Date(a.scheduledFor!).getTime() - new Date(b.scheduledFor!).getTime());
 
   return (
-    <div style={{ padding: 32, maxWidth: 700, display: "flex", flexDirection: "column", gap: 20 }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 20 }}>Calendar</h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 4 }}>
-          Upcoming scheduled posts, in order. A list rather than a grid — nothing here needs a calendar
-          widget to be honest about what's queued.
-        </p>
-      </div>
+    <div style={{ padding: 32, maxWidth: "var(--content-max-width)", margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
+      <PageToolbar
+        title="Calendar"
+        description="Upcoming scheduled posts, in order. A list rather than a grid — nothing here needs a calendar widget to be honest about what's queued."
+      />
 
       {upcoming.length === 0 ? (
-        <EmptyState message="Nothing scheduled." />
+        <EmptyState icon={<CalendarClock size={24} />} message="Nothing scheduled." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {upcoming.map((c) => (
@@ -64,10 +68,14 @@ export function CalendarPage({ workspaceId }: { workspaceId: string }) {
               }}
             >
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{new Date(c.scheduledFor!).toLocaleString()}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-                  {c.internalName ?? c.sharedCaption ?? "(no caption)"} —{" "}
-                  {c.destinations.map((d) => d.platformId).join(", ")}
+                <div style={{ fontWeight: 600, fontSize: "var(--text-base)" }}>{new Date(c.scheduledFor!).toLocaleString()}</div>
+                <div style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", marginTop: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>{c.internalName ?? c.sharedCaption ?? "(no caption)"}</span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    {c.destinations.map((d) => (
+                      <PlatformBadge key={d.id} platformId={d.platformId} label={d.platformId} size={18} />
+                    ))}
+                  </span>
                 </div>
               </div>
               {c.destinations

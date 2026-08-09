@@ -69,6 +69,19 @@
   --motion-normal: 200ms;
   --motion-slow: 260ms;
   --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Typography scale -- previously every page hardcoded its own fontSize
+     numbers inline with no shared reference point. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 20px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -76,6 +89,9 @@
     --motion-fast: 0ms;
     --motion-normal: 0ms;
     --motion-slow: 0ms;
+  }
+  .nz-skeleton::after {
+    animation: none;
   }
 }
 
@@ -227,4 +243,168 @@ pre,
 ::selection {
   background: var(--accent);
   color: #ffffff;
+}
+
+/* ---------------------------------------------------------------------
+   Restyled native form controls -- .nz-select/.nz-checkbox/.nz-radio keep
+   the real underlying <select>/<input> (accessibility, keyboard behavior,
+   screen readers all stay native) and only change how they're painted.
+   --------------------------------------------------------------------- */
+.nz-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--panel-soft);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 32px 8px 10px;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-family: inherit;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2396969e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+.nz-select:hover {
+  border-color: var(--border-strong);
+}
+.nz-select:focus {
+  border-color: var(--accent);
+}
+.nz-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nz-checkbox,
+.nz-radio {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.nz-checkbox:disabled,
+.nz-radio:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Toggle switch -- markup: <label class="nz-switch"><input type="checkbox"
+   .../><span class="nz-switch-track"><span class="nz-switch-thumb"/></span
+   ></label>. The checkbox itself stays real and focusable; only its
+   default box is hidden in favor of the painted track+thumb siblings. */
+.nz-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.nz-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.nz-switch-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--panel-hover);
+  border: 1px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
+}
+.nz-switch-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition:
+    transform var(--motion-fast) var(--motion-ease),
+    background var(--motion-fast) var(--motion-ease);
+}
+.nz-switch input:checked + .nz-switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.nz-switch input:checked + .nz-switch-track .nz-switch-thumb {
+  transform: translateX(16px);
+  background: #ffffff;
+}
+.nz-switch input:focus-visible + .nz-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.nz-switch input:disabled + .nz-switch-track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Status pill -- color driven by data-tone so callers never hand-roll a
+   color. Falls back to "neutral" styling if data-tone is omitted. */
+.nz-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.6;
+  white-space: nowrap;
+  border: 1px solid var(--border-subtle);
+  background: var(--panel-hover);
+  color: var(--text-secondary);
+}
+.nz-badge[data-tone="success"] {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+}
+.nz-badge[data-tone="error"] {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  border-color: color-mix(in srgb, var(--error) 35%, transparent);
+}
+.nz-badge[data-tone="warning"] {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.nz-badge[data-tone="info"] {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 15%, transparent);
+  border-color: color-mix(in srgb, var(--info) 35%, transparent);
+}
+
+/* Shimmering loading placeholder -- disabled entirely under
+   prefers-reduced-motion (see the media query above). */
+.nz-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--panel-hover);
+  border-radius: var(--radius-sm);
+}
+.nz-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: nz-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes nz-skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }

@@ -1,12 +1,10 @@
 // The real, production backend. Every method is a thin `invoke()` call
-// against a Rust command in src-tauri/src/commands.rs. This file has NOT
-// been exercised against a compiled Tauri binary in the environment that
-// wrote it (see README.md's toolchain limitations) — the command names
-// and argument shapes are kept in exact sync with commands.rs and main.rs's
-// invoke_handler! list, but treat this pairing as reviewed, not verified,
-// until it's actually run with `npm run tauri dev`.
+// against a Rust command in src-tauri/src/commands.rs. Command names and
+// argument shapes are kept in exact sync with commands.rs and main.rs's
+// invoke_handler! list; this pairing has been exercised against a real
+// compiled Tauri binary (`npm run tauri build`) on Windows.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import type { Backend } from "./backend";
 import type {
   ActivityItem,
@@ -14,6 +12,7 @@ import type {
   BackupRecord,
   Campaign,
   CaptionTemplate,
+  CreatorPostingOptions,
   DiagnosticEvent,
   HashtagSet,
   MetricDefinitionOption,
@@ -23,6 +22,22 @@ import type {
   VideoAsset,
   Workspace,
 } from "./types";
+
+/** A failed `#[tauri::command]` rejects its JS promise with the raw
+ * `Err(String)` value -- a plain string, NOT a JS `Error` instance. Every
+ * component's error handling does `err instanceof Error ? err.message :
+ * "<generic fallback>"`, matching the pattern `mockBackend.ts` already
+ * uses (which throws real `Error`s) -- without this wrapper, that check
+ * is always false for real backend errors, and the actual Rust-side
+ * message (e.g. why an OAuth connect failed) gets silently replaced with
+ * a useless generic string instead of ever reaching the UI. */
+async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await rawInvoke<T>(cmd, args);
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(typeof err === "string" ? err : String(err));
+  }
+}
 
 export const tauriBackend: Backend = {
   listPlatforms: () => invoke<PlatformDefinition[]>("list_platforms"),
@@ -69,6 +84,8 @@ export const tauriBackend: Backend = {
   listCampaigns: (workspaceId) => invoke<Campaign[]>("list_campaigns", { workspaceId }),
   cancelScheduledPost: (destinationPostId) => invoke<void>("cancel_scheduled_post", { destinationPostId }),
   retryDestinationPost: (destinationPostId) => invoke<void>("retry_destination_post", { destinationPostId }),
+
+  getPostingOptions: (connectionId) => invoke<CreatorPostingOptions>("get_posting_options", { connectionId }),
 
   syncAnalytics: (connectionId) => invoke<void>("sync_analytics", { connectionId }),
   listMetrics: (connectionId) => invoke<MetricRow[]>("list_metrics", { connectionId }),

@@ -192,7 +192,9 @@ impl ProviderAdapter for YouTubeAdapter {
     }
 
     async fn get_creator_posting_options(&self, _credential_ref: &str) -> Result<CreatorPostingOptions, AdapterError> {
-        Ok(CreatorPostingOptions { available_privacy_levels: vec!["public".into(), "unlisted".into(), "private".into()], can_disable_comments: true, can_disable_duet: false, can_disable_stitch: false, max_duration_seconds: None, posting_cap_remaining: None, extra: serde_json::json!({}) })
+        // 100 chars is YouTube Data API's documented snippet.title limit:
+        // https://developers.google.com/youtube/v3/docs/videos#snippet.title
+        Ok(CreatorPostingOptions { available_privacy_levels: vec!["public".into(), "unlisted".into(), "private".into()], can_disable_comments: true, can_disable_duet: false, can_disable_stitch: false, max_duration_seconds: None, max_caption_length: Some(100), posting_cap_remaining: None, extra: serde_json::json!({}) })
     }
 
     async fn estimate_request_cost(&self, _operation: &str) -> Result<CostEstimate, AdapterError> {
@@ -323,6 +325,9 @@ impl ProviderAdapter for YouTubeAdapter {
         }
         #[derive(serde::Deserialize)]
         struct VideosResponse {
+            // Same "items" omitted entirely on zero results" behavior as
+            // ChannelsResponse in fetch_channel_info -- see that comment.
+            #[serde(default)]
             items: Vec<VideoItem>,
         }
         #[derive(serde::Deserialize)]
@@ -385,6 +390,13 @@ impl YouTubeAdapter {
         }
         #[derive(serde::Deserialize)]
         struct ChannelsResponse {
+            // YouTube's API omits `items` entirely (rather than returning an
+            // empty array) when a query matches zero channels -- confirmed
+            // by a real "mine=true" call against a Google account with no
+            // YouTube channel, which returned a 200 with no `items` key at
+            // all and made plain deserialization fail before the "no
+            // channel" check below ever got a chance to run.
+            #[serde(default)]
             items: Vec<ChannelItem>,
         }
         #[derive(serde::Deserialize)]
