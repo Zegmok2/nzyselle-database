@@ -21,17 +21,26 @@ This app's OAuth flow opens your system browser and briefly listens on
   Desktop app type explicitly allows any `http://127.0.0.1:*` redirect URI.
 - **TikTok**: TikTok's Developer Portal requires an *exact* registered
   redirect URI — it does not accept a wildcard port. This app therefore
-  uses a **fixed port, 47983**, for TikTok specifically. When you register
-  your TikTok app, add `http://127.0.0.1:47983/callback` as a registered
-  redirect URI exactly. If that port happens to be in use by something
-  else on your machine when you try to connect, the connection attempt
-  will fail with a bind error — close whatever's using it and retry.
-- **Instagram (Meta)**: same fixed-port constraint as TikTok, **plus a
-  bigger Meta-specific quirk confirmed live**: Meta's "Business Login for
-  Instagram" flow has no loopback/localhost exception at all — it rejects
-  both a bare-IP redirect and a plain `http://localhost` one outright
-  ("Error saving redirect URIs"). This app therefore sends Instagram
+  uses a **fixed port, 47983**, for TikTok specifically. **Confirmed live:
+  TikTok's Login Kit "Web" redirect URI type rejects any loopback address
+  outright** ("Enter a valid redirect uri (localhost is not supported)"),
+  same restriction Instagram has below. This app therefore sends TikTok
   through a small static bridge page hosted on GitHub Pages,
+  `https://zegmok2.github.io/nzyselle-database/tiktok-redirect.html`
+  (source: `docs/tiktok-redirect.html`), which immediately forwards the
+  browser to this app's real local callback listener with the same query
+  string — register that bridge URL, not a localhost one, as your TikTok
+  app's redirect URI (see `TIKTOK_REDIRECT_BRIDGE_URL` in
+  `src-tauri/src/commands.rs`). If port 47983 happens to be in use by
+  something else on your machine when you try to connect, the connection
+  attempt will fail with a bind error — close whatever's using it and
+  retry.
+- **Instagram (Meta)**: same fixed-port constraint as TikTok, **plus the
+  same no-loopback-exception quirk confirmed live**: Meta's "Business
+  Login for Instagram" flow has no loopback/localhost exception at all —
+  it rejects both a bare-IP redirect and a plain `http://localhost` one
+  outright ("Error saving redirect URIs"). This app therefore sends
+  Instagram through a small static bridge page hosted on GitHub Pages,
   `https://zegmok2.github.io/nzyselle-database/instagram-redirect.html`
   (source: `docs/instagram-redirect.html`), which immediately forwards
   the browser to this app's real local callback listener with the same

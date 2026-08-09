@@ -21,8 +21,9 @@ mod db;
 mod commands;
 mod scheduler;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub struct AppState {
@@ -33,6 +34,14 @@ pub struct AppState {
     pub credentials: Arc<dyn nzyselle_core::credentials::CredentialStore>,
     #[cfg(not(target_os = "windows"))]
     pub credentials: Arc<dyn nzyselle_core::credentials::CredentialStore>,
+    /// Tracks the in-flight OAuth callback listener for each platform (keyed
+    /// by platform_id) so a fresh `begin_connect_platform` attempt can abort
+    /// a still-pending one first. Only matters for fixed-port platforms
+    /// (TikTok/Instagram) -- without this, retrying (e.g. after opening the
+    /// authorization URL in the wrong browser by accident) collides with the
+    /// old listener still holding the port and fails with "address already
+    /// in use". See `begin_connect_platform` in commands.rs.
+    pub pending_oauth: Mutex<HashMap<String, tokio::task::AbortHandle>>,
 }
 
 fn main() {
@@ -65,7 +74,7 @@ fn main() {
             let adapter_registry = Arc::new(adapters::AdapterRegistry::new(credentials.clone()));
             scheduler::spawn(db.clone(), adapter_registry.clone());
 
-            app.manage(AppState { db, db_path, adapters: adapter_registry, credentials });
+            app.manage(AppState { db, db_path, adapters: adapter_registry, credentials, pending_oauth: Mutex::new(HashMap::new()) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

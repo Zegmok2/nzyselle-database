@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Redirecting to Nzyselle Database…</title>
+</head>
+<body>
+<!--
+  TikTok's Login Kit ("Web" redirect URI type) rejects any loopback
+  redirect_uri outright -- confirmed live ("Enter a valid redirect uri
+  (localhost is not supported)") when registering http://127.0.0.1:47983
+  /callback directly, the same restriction Instagram's Business Login
+  flow has (see docs/instagram-redirect.html and docs/LIMITATIONS.md).
+  This page exists purely to satisfy that requirement: TikTok redirects
+  the browser HERE (a real public HTTPS page) with the OAuth code/state
+  in the query string, and this page's only job is to immediately hand
+  that same query string off to Nzyselle Database's real local OAuth
+  callback listener (127.0.0.1, TikTok's fixed port 47983 -- see
+  core/src/oauth_callback.rs and docs/LIMITATIONS.md). Nothing here
+  reads, stores, or transmits the code/state anywhere else -- it's a
+  pure same-machine handoff, the browser is simply told to load one
+  more local URL.
+-->
+<p>Redirecting back to Nzyselle Database…</p>
+<script>
+  window.location.replace("http://localhost:47983/callback" + window.location.search);
+</script>
+</body>
+</html>

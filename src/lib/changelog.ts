@@ -6,7 +6,7 @@
  * CHANGELOG each time a build ships a meaningful set of fixes/features --
  * newest first, same convention as every other changelog.
  */
-export const APP_VERSION = "0.4.9";
+export const APP_VERSION = "0.4.15";
 
 export type ChangeKind = "feature" | "fix" | "optimization";
 
@@ -17,6 +17,49 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "0.4.15",
+    date: "2026-08-09",
+    changes: [
+      { kind: "fix", text: "TikTok's OAuth redirect URI now uses the same GitHub Pages bridge-page trick already built for Instagram: confirmed live, TikTok's Login Kit \"Web\" redirect URI type rejects any loopback address outright (\"Enter a valid redirect uri (localhost is not supported)\") -- the earlier assumption that a plain http://127.0.0.1:47983/callback would be accepted (like TikTok's other, non-Web redirect types) turned out to be wrong. TikTok now redirects to docs/tiktok-redirect.html, which immediately forwards to the real local callback listener." },
+      { kind: "fix", text: "TikTok's credential field in Settings > Platform Developer Apps now says \"Client Key\" instead of \"Client ID\" -- matching TikTok's own developer portal terminology." },
+    ],
+  },
+  {
+    version: "0.4.14",
+    date: "2026-08-08",
+    changes: [
+      { kind: "fix", text: "Fixed the real cause of the last Instagram error the improved error message finally revealed: the token exchange's \"permissions\" field is a JSON array of strings, not the comma-separated string this adapter assumed -- that type mismatch made serde reject the entire response, not just that one field, which is exactly what the generic parsing error had been hiding. Instagram connect now completes cleanly end-to-end, granted scopes included." },
+    ],
+  },
+  {
+    version: "0.4.13",
+    date: "2026-08-08",
+    changes: [
+      { kind: "fix", text: "Instagram connect attempts that fail during the token exchange now show Meta's actual response text instead of a generic \"missing field `data`\" JSON-parsing error -- that message was really just serde failing to fit an unrecognized response (most likely an already-used or expired authorization code) into either of the two known success shapes, but it hid what Meta actually said. If this happens again the error message itself will now say why." },
+    ],
+  },
+  {
+    version: "0.4.12",
+    date: "2026-08-08",
+    changes: [
+      { kind: "fix", text: "Fixed Instagram's Connections card always showing \"Granted: none\" even after approving every permission on the real consent screen: the adapter never read the granted-permissions list out of the token exchange response, it just hardcoded an empty list. Now parses the comma-separated permissions Meta actually returns (matching the same pattern TikTok's and YouTube's adapters already used)." },
+    ],
+  },
+  {
+    version: "0.4.11",
+    date: "2026-08-08",
+    changes: [
+      { kind: "feature", text: "Milestone: Instagram's real OAuth connection has now been confirmed working end-to-end against a live Instagram Creator account, joining YouTube. Found and fixed the last bug on the way there: the short-lived token exchange response was assumed (per Meta's docs) to be wrapped in a \"data\" array, but a real exchange returned a flat object instead -- the adapter now tries the flat shape first (what's actually been observed) and falls back to the documented wrapped shape." },
+    ],
+  },
+  {
+    version: "0.4.10",
+    date: "2026-08-08",
+    changes: [
+      { kind: "fix", text: "Fixed a fixed-port platform (TikTok/Instagram) connect attempt failing with \"could not bind the local callback listener... os error 10048\" if you retried before the previous attempt finished (e.g. accidentally opening the authorization link in a different browser, then trying again from the app) -- the old listener kept holding the port for up to its 5-minute timeout. Starting a new attempt for the same platform now cancels any still-pending one first, so you can retry connecting as many times as you need." },
+    ],
+  },
   {
     version: "0.4.9",
     date: "2026-08-08",

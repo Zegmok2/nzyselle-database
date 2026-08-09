@@ -291,6 +291,13 @@ fn fixed_oauth_port_for(platform_id: &str) -> u16 {
 /// redirect URI in the Meta App Dashboard.
 const INSTAGRAM_REDIRECT_BRIDGE_URL: &str = "https://zegmok2.github.io/nzyselle-database/instagram-redirect.html";
 
+/// Same bridge trick as Instagram's, for the same reason: TikTok's Login
+/// Kit "Web" redirect URI type also rejects any loopback address outright
+/// ("Enter a valid redirect uri (localhost is not supported)", confirmed
+/// live) -- see docs/tiktok-redirect.html and docs/LIMITATIONS.md. Must
+/// exactly match what's registered as this app's TikTok redirect URI.
+const TIKTOK_REDIRECT_BRIDGE_URL: &str = "https://zegmok2.github.io/nzyselle-database/tiktok-redirect.html";
+
 /// Opens the platform's real OAuth authorize page in the system browser and
 /// waits for the loopback callback -- the same pattern `begin_connect_sandbox`
 /// uses, but generic over any adapter in the registry instead of hardcoding
@@ -310,6 +317,14 @@ pub async fn begin_connect_platform(app: tauri::AppHandle, state: State<'_, AppS
     // must be registered in each platform's developer app settings (see
     // docs/LIMITATIONS.md).
     let fixed_port = fixed_oauth_port_for(&platform_id);
+    // Abort any still-pending attempt for this platform before binding --
+    // otherwise retrying (e.g. after accidentally opening the authorization
+    // URL in a different browser, or clicking connect twice) collides with
+    // the old listener still holding the fixed port for up to its 5-minute
+    // timeout and fails with "address already in use" (confirmed live).
+    if let Some(handle) = state.pending_oauth.lock().unwrap().remove(&platform_id) {
+        handle.abort();
+    }
     let (listener, port) = nzyselle_core::oauth_callback::CallbackServer::bind_on(fixed_port).await.map_err(|e| e.to_string())?;
     // Instagram's "Business Login for Instagram" flow goes one step further
     // than a hostname quirk -- confirmed live, its redirect_uri must be a
@@ -325,6 +340,8 @@ pub async fn begin_connect_platform(app: tauri::AppHandle, state: State<'_, AppS
     // the URL Instagram redirects to directly.
     let redirect_uri = if platform_id == "instagram" {
         INSTAGRAM_REDIRECT_BRIDGE_URL.to_string()
+    } else if platform_id == "tiktok" {
+        TIKTOK_REDIRECT_BRIDGE_URL.to_string()
     } else {
         format!("http://127.0.0.1:{port}/callback")
     };
@@ -336,11 +353,14 @@ pub async fn begin_connect_platform(app: tauri::AppHandle, state: State<'_, AppS
     // platforms (TikTok/Instagram), where a leaked listener would
     // permanently block every later connect attempt with an OS "address
     // already in use" error.
-    let server = nzyselle_core::oauth_callback::CallbackServer::listen(listener, port, begin.state.clone(), std::time::Duration::from_secs(300));
+    let (server, abort_handle) = nzyselle_core::oauth_callback::CallbackServer::listen(listener, port, begin.state.clone(), std::time::Duration::from_secs(300));
+    state.pending_oauth.lock().unwrap().insert(platform_id.clone(), abort_handle);
 
     app.opener().open_url(&begin.authorization_url, None::<String>).map_err(|e| format!("Couldn't open the system browser: {e}"))?;
 
-    let callback = server.wait_for_callback().await.map_err(|e| format!("Authorization didn't complete: {e}"))?;
+    let callback_result = server.wait_for_callback().await;
+    state.pending_oauth.lock().unwrap().remove(&platform_id);
+    let callback = callback_result.map_err(|e| format!("Authorization didn't complete: {e}"))?;
 
     let identity = adapter
         .complete_authorization(&callback.code, &callback.state, &begin.pkce_verifier, &redirect_uri)

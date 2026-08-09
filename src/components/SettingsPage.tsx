@@ -246,7 +246,7 @@ export function SettingsPage({ workspace, onUpdated }: { workspace: Workspace; o
             // Secret", not "Client ID"/"Client Secret" -- same values,
             // same field, just matching the label to what's actually on
             // screen when the user copies them from Meta's dashboard.
-            const idLabel = platformId === "instagram" ? "App ID" : "Client ID";
+            const idLabel = platformId === "instagram" ? "App ID" : platformId === "tiktok" ? "Client Key" : "Client ID";
             const secretLabel = platformId === "instagram" ? "App Secret" : "Client Secret";
             return (
             <div key={platformId} style={{ padding: 12, background: "var(--panel-strong)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-sm)" }}>
@@ -371,11 +371,11 @@ export function SettingsPage({ workspace, onUpdated }: { workspace: Workspace; o
         >
           <span style={{ color: "var(--warning)", fontWeight: 700, flexShrink: 0 }}>Verification status</span>
           <span>
-            Sandbox has been connected and posted to end-to-end. YouTube&rsquo;s real OAuth connection
-            has also now been confirmed working against a live Google account (as of 2026-08-08) — but
-            publishing a video through it hasn&rsquo;t been tested yet, so treat uploads as unverified
-            until one actually succeeds. TikTok and Instagram are implemented against each platform&rsquo;s
-            public API docs but have not been run against a live account at all — check the status shown
+            Sandbox has been connected and posted to end-to-end. YouTube&rsquo;s and Instagram&rsquo;s real
+            OAuth connections have also now been confirmed working against live accounts (as of
+            2026-08-08) — but publishing a video through either hasn&rsquo;t been tested yet, so treat
+            uploads as unverified until one actually succeeds. TikTok is implemented against its
+            public API docs but has not been run against a live account at all — check the status shown
             on each platform&rsquo;s card on the Connections page before relying on any of this.
           </span>
         </div>

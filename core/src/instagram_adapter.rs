@@ -177,23 +177,52 @@ impl ProviderAdapter for InstagramAdapter {
         if !status.is_success() {
             return Err(map_http_status(status, &body));
         }
-        // Wrapped in a "data" array per Meta's documented response shape
-        // for this specific endpoint -- confirmed from their live docs.
-        #[derive(serde::Deserialize)]
-        struct ShortLivedTokenResponse {
-            data: Vec<ShortLivedTokenItem>,
-        }
         #[derive(serde::Deserialize)]
         struct ShortLivedTokenItem {
             access_token: String,
+            // A JSON array of granted permission strings, present on the
+            // real flat response -- confirmed live (an earlier version of
+            // this struct assumed a comma-separated string per an
+            // undocumented guess, which silently broke deserialization of
+            // the entire response, not just this field, since serde
+            // rejects the whole struct on a field type mismatch). Kept
+            // optional since it isn't documented at all, so a response
+            // missing it doesn't fail the whole exchange, it just leaves
+            // granted_scopes empty below.
+            #[serde(default)]
+            permissions: Option<Vec<String>>,
         }
-        let parsed: ShortLivedTokenResponse = serde_json::from_str(&body).map_err(|e| AdapterError::Permanent(format!("Unexpected token response: {e}")))?;
-        let short_lived = parsed
-            .data
-            .into_iter()
-            .next()
-            .ok_or_else(|| AdapterError::Permanent("Token exchange succeeded but returned no token.".to_string()))?
-            .access_token;
+        #[derive(serde::Deserialize)]
+        struct ShortLivedTokenResponseWrapped {
+            data: Vec<ShortLivedTokenItem>,
+        }
+        // Meta's docs show this endpoint's response wrapped in a "data"
+        // array, but a real exchange returned a flat object instead
+        // (access_token/user_id/permissions at the top level, no "data"
+        // key) -- confirmed live, on the first successful Instagram
+        // authorization. Tries the flat shape first since that's what's
+        // actually been observed, falling back to the documented wrapped
+        // shape in case a future/different app config returns that instead.
+        let (short_lived, granted_permissions) = if let Ok(flat) = serde_json::from_str::<ShortLivedTokenItem>(&body) {
+            (flat.access_token, flat.permissions)
+        } else if let Ok(wrapped) = serde_json::from_str::<ShortLivedTokenResponseWrapped>(&body) {
+            let item = wrapped
+                .data
+                .into_iter()
+                .next()
+                .ok_or_else(|| AdapterError::Permanent("Token exchange succeeded but returned no token.".to_string()))?;
+            (item.access_token, item.permissions)
+        } else {
+            // Neither shape matched -- most likely Meta returned an
+            // HTTP-200 error object (e.g. an already-used or expired
+            // authorization code) rather than a token. Surface the actual
+            // response body instead of a bare serde error, so this is
+            // diagnosable from the app's error message alone instead of
+            // requiring a fresh repro with logging attached.
+            let snippet: String = body.chars().take(300).collect();
+            return Err(AdapterError::Permanent(format!("Unexpected token exchange response: {snippet}")));
+        };
+        let granted_scopes: Vec<String> = granted_permissions.unwrap_or_default();
 
         // Step 2: exchange the short-lived token for a 60-day long-lived one.
         let resp = self
@@ -228,7 +257,7 @@ impl ProviderAdapter for InstagramAdapter {
             display_name: me.username.clone(),
             username: me.username,
             profile_image_url: me.profile_picture_url,
-            granted_scopes: vec![],
+            granted_scopes,
             missing_scopes: vec![],
             credential_ref,
             token_expires_at: long_lived.expires_in.map(|s| Utc::now() + Duration::seconds(s)),

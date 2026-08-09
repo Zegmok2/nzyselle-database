@@ -54,7 +54,8 @@ impl CallbackServer {
     /// same random value passed to the provider's authorization URL.
     pub async fn start(expected_state: impl Into<String>, max_wait: Duration) -> Result<Self, CallbackError> {
         let (listener, port) = Self::bind().await?;
-        Ok(Self::listen(listener, port, expected_state, max_wait))
+        let (server, _abort_handle) = Self::listen(listener, port, expected_state, max_wait);
+        Ok(server)
     }
 
     /// Binds the loopback listener only, without starting to accept a
@@ -89,17 +90,26 @@ impl CallbackServer {
     /// connect attempt could permanently block every later attempt with an
     /// "address already in use" OS error, confirmed against a real
     /// Instagram connect attempt that collided with an earlier one.
-    pub fn listen(listener: TcpListener, port: u16, expected_state: impl Into<String>, max_wait: Duration) -> Self {
+    /// Also returns an `AbortHandle` for the spawned listener task. Callers
+    /// juggling a *fixed* port (TikTok/Instagram) should keep this and call
+    /// `.abort()` on it before starting a fresh attempt on the same
+    /// platform -- otherwise a still-pending attempt (e.g. the user
+    /// accidentally opened the authorization URL in a different browser, or
+    /// just clicked connect twice) keeps holding the port for up to
+    /// `max_wait`, and the next attempt's `bind_on` fails with "address
+    /// already in use" (OS error 10048 on Windows). Confirmed live.
+    pub fn listen(listener: TcpListener, port: u16, expected_state: impl Into<String>, max_wait: Duration) -> (Self, tokio::task::AbortHandle) {
         let expected_state = expected_state.into();
         let (tx, rx) = oneshot::channel();
-        tokio::spawn(async move {
+        let join_handle = tokio::spawn(async move {
             let outcome = match timeout(max_wait, accept_one_valid_callback(listener, &expected_state)).await {
                 Ok(result) => result,
                 Err(_) => Err(CallbackError::Timeout),
             };
             let _ = tx.send(outcome);
         });
-        Self { port, result_rx: rx }
+        let abort_handle = join_handle.abort_handle();
+        (Self { port, result_rx: rx }, abort_handle)
     }
 
     pub fn redirect_uri(&self) -> String {
